@@ -1,4 +1,4 @@
-# main.py - 主程式啟動檔
+# main.py - 主程式啟動檔 (修正版)
 from flask import Flask, request, abort
 import os
 from linebot import LineBotApi, WebhookHandler
@@ -53,34 +53,12 @@ def handle_follow(event):
     line_bot_api.reply_message(event.reply_token, 
                               MessageProcessor.create_text_message(welcome_message))
 
-# if __name__ == "__main__":
-#     print("🚀 啟動企業級出勤管理系統...")
-#     print("🔒 權限系統：管理員 / 員工")
-#     print("🛡️ 安全特色：IP驗證 + 網路範圍控制")
-    
-#     # 初始化資料庫
-#     init_db()
-#     print("✅ 企業資料庫初始化完成")
-    
-#     print("\n📱 LINE Bot功能已就緒")
-#     print("🌐 管理後台已整合")
-#     print("🔒 網路安全控制已啟用")
-#     print("🔥 自助註冊功能已啟用")
-    
-#     print("\n💡 主要功能：")
-#     print("  ✅ 上班打卡 / 下班打卡")
-#     print("  ✅ 今日狀態 / 查看記錄") 
-#     print("  ✅ 網路安全驗證")
-#     print("  ✅ 自助註冊流程")
-    
-#     # 啟動 Flask 應用
-#     port = int(os.environ.get('PORT', 5008))
-#     print(f"\n🌐 系統網址: http://localhost:{port}")
-#     print(f"👨‍💼 管理後台: http://localhost:{port}/admin (admin/admin123)")
-#     print("🎉 完整出勤管理系統啟動完成！")
-    
-#     app.run(host='0.0.0.0', port=port, debug=True)
-if __name__ == "__main__":
+# 測試路由
+@app.route('/test')
+def test():
+    return "Flask 應用運行正常！"
+
+if __name__ == "__main__":  # ✅ 修正：使用雙底線而非雙星號
     print("🚀 啟動企業級出勤管理系統...")
     print("🔒 權限系統：管理員 / 員工")
     print("🛡️ 安全特色：IP驗證 + 網路範圍控制")
@@ -108,9 +86,15 @@ if __name__ == "__main__":
     print("  ✅ 網路安全驗證")
     print("  ✅ 自助註冊流程")
     
+    # 顯示已註冊的路由
+    print("\n📋 已註冊的路由:")
+    for rule in app.url_map.iter_rules():
+        print(f"  {rule.endpoint}: {rule.rule}")
+    
     # 啟動 Flask 應用
     port = int(os.environ.get('PORT', 5008))
     print(f"\n🌐 系統網址: http://localhost:{port}")
+    print(f"🧪 測試網址: http://localhost:{port}/test")
     print(f"👨‍💼 管理後台: http://localhost:{port}/admin (admin/admin123)")
     print("🎉 完整出勤管理系統啟動完成！")
     

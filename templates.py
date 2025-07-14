@@ -93,7 +93,7 @@ INDEX_TEMPLATE = '''
         
         <div class="network-info">
             <h4>🌐 網路設定資訊</h4>
-            <p><strong>允許打卡網路：</strong>147.92.150.0/24</p>
+            <p><strong>允許打卡網路：</strong>192.168.101.0/24</p>
             <p><small>僅在此網路範圍內可以進行打卡操作</small></p>
         </div>
         
@@ -290,7 +290,7 @@ ADMIN_TEMPLATE = '''
     <div id="mainContent" class="hidden">
         <div class="header">
             <h1>📊 企業出勤管理後台</h1>
-            <p>網路安全版 - 限制 147.92.150.0/24 網路才能打卡</p>
+            <p>網路安全版 - 限制 192.168.101.0/24 網路才能打卡</p>
         </div>
 
         <div class="container">
@@ -320,7 +320,7 @@ ADMIN_TEMPLATE = '''
                 
                 <div class="network-info-box">
                     <h4>📋 當前網路設定</h4>
-                    <p><strong>允許打卡網路：</strong>147.92.150.0/24</p>
+                    <p><strong>允許打卡網路：</strong>192.168.101.0/24</p>
                     <p><small>此網路範圍包含 172.20.10.0 到 172.20.10.15 共16個IP地址</small></p>
                 </div>
                 
@@ -333,11 +333,11 @@ ADMIN_TEMPLATE = '''
                     <div style="margin-bottom: 15px;">
                         <label for="allowedNetworks"><strong>允許的網路範圍：</strong></label>
                         <textarea id="allowedNetworks" class="form-textarea" 
-                                placeholder="例如：147.92.150.0/24,192.168.1.0/24&#10;多個網路用逗號分隔"></textarea>
+                                placeholder="例如：192.168.101.0/24,192.168.1.0/24&#10;多個網路用逗號分隔"></textarea>
                         <small style="color: #666;">
                             支援格式：<br>
                             • 單一IP：172.20.10.5<br>
-                            • 網路段：147.92.150.0/24<br>
+                            • 網路段：192.168.101.0/24<br>
                             • 多個網路用逗號分隔
                         </small>
                     </div>

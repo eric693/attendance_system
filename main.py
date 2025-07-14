@@ -53,15 +53,49 @@ def handle_follow(event):
     line_bot_api.reply_message(event.reply_token, 
                               MessageProcessor.create_text_message(welcome_message))
 
+# if __name__ == "__main__":
+#     print("🚀 啟動企業級出勤管理系統...")
+#     print("🔒 權限系統：管理員 / 員工")
+#     print("🛡️ 安全特色：IP驗證 + 網路範圍控制")
+    
+#     # 初始化資料庫
+#     init_db()
+#     print("✅ 企業資料庫初始化完成")
+    
+#     print("\n📱 LINE Bot功能已就緒")
+#     print("🌐 管理後台已整合")
+#     print("🔒 網路安全控制已啟用")
+#     print("🔥 自助註冊功能已啟用")
+    
+#     print("\n💡 主要功能：")
+#     print("  ✅ 上班打卡 / 下班打卡")
+#     print("  ✅ 今日狀態 / 查看記錄") 
+#     print("  ✅ 網路安全驗證")
+#     print("  ✅ 自助註冊流程")
+    
+#     # 啟動 Flask 應用
+#     port = int(os.environ.get('PORT', 5008))
+#     print(f"\n🌐 系統網址: http://localhost:{port}")
+#     print(f"👨‍💼 管理後台: http://localhost:{port}/admin (admin/admin123)")
+#     print("🎉 完整出勤管理系統啟動完成！")
+    
+#     app.run(host='0.0.0.0', port=port, debug=True)
 if __name__ == "__main__":
     print("🚀 啟動企業級出勤管理系統...")
     print("🔒 權限系統：管理員 / 員工")
-    print("🌐 網路限制：147.92.150.0/24")
     print("🛡️ 安全特色：IP驗證 + 網路範圍控制")
     
     # 初始化資料庫
     init_db()
     print("✅ 企業資料庫初始化完成")
+    
+    # 自動更新網路設定
+    try:
+        from models import CompanySettings
+        CompanySettings.update_setting('allowed_networks', '172.20.10.0/24,147.92.150.0/24', 'system')
+        print("✅ 網路設定已自動更新")
+    except Exception as e:
+        print(f"⚠️ 網路設定更新失敗: {e}")
     
     print("\n📱 LINE Bot功能已就緒")
     print("🌐 管理後台已整合")

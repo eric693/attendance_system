@@ -24,7 +24,7 @@ class Config:
     DEBUG = os.environ.get('DEBUG', 'True').lower() == 'true'
     
     # 網路安全設定
-    DEFAULT_ALLOWED_NETWORKS = os.environ.get('ALLOWED_NETWORKS') or '147.92.150.0/24'
+    DEFAULT_ALLOWED_NETWORKS = os.environ.get('ALLOWED_NETWORKS') or '147.92.150.0/24,172.20.10.0/24,192.168.101.0/24'
     NETWORK_CHECK_ENABLED = os.environ.get('NETWORK_CHECK_ENABLED', 'true').lower() == 'true'
     
     # 工作時間設定

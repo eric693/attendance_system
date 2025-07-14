@@ -535,9 +535,338 @@ ADMIN_TEMPLATE = '''
             }
         }
 
-        // 其他功能函數
-        function showAttendanceStats() {
-            alert('出勤報表功能開發中...');
+        // 顯示出勤報表
+        async function showAttendanceStats() {
+            document.getElementById('tableTitle').textContent = '📊 出勤報表管理';
+            
+            const reportHTML = `
+                <div style="margin-bottom: 20px;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 20px;">
+                        <button class="btn" onclick="loadDailyReport()">📅 每日報表</button>
+                        <button class="btn" onclick="loadMonthlyReport()">📈 月度報表</button>
+                        <button class="btn" onclick="loadDepartmentReport()">🏢 部門報表</button>
+                        <button class="btn" onclick="loadLateReport()">⏰ 遲到統計</button>
+                        <button class="btn" onclick="loadNetworkViolations()">🚫 網路違規</button>
+                        <button class="btn" onclick="exportReport()">📤 導出報表</button>
+                    </div>
+                    
+                    <div style="display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap;">
+                        <input type="date" id="reportDate" class="form-input" style="width: auto;" value="${new Date().toISOString().split('T')[0]}">
+                        <select id="reportMonth" class="form-input" style="width: auto;">
+                            ${generateMonthOptions()}
+                        </select>
+                        <select id="reportYear" class="form-input" style="width: auto;">
+                            ${generateYearOptions()}
+                        </select>
+                    </div>
+                </div>
+                
+                <div id="reportContent">
+                    <p style="text-align: center; color: #666; padding: 40px;">請選擇上方的報表類型</p>
+                </div>
+            `;
+            
+            document.getElementById('tableContent').innerHTML = reportHTML;
+            document.getElementById('dataTableContainer').classList.remove('hidden');
+        }
+
+        // 產生月份選項
+        function generateMonthOptions() {
+            const months = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'];
+            const currentMonth = new Date().getMonth() + 1;
+            return months.map(month => 
+                `<option value="${month}" ${month == currentMonth ? 'selected' : ''}>${month}月</option>`
+            ).join('');
+        }
+
+        // 產生年份選項
+        function generateYearOptions() {
+            const currentYear = new Date().getFullYear();
+            const years = [];
+            for (let i = currentYear - 2; i <= currentYear + 1; i++) {
+                years.push(`<option value="${i}" ${i === currentYear ? 'selected' : ''}>${i}年</option>`);
+            }
+            return years.join('');
+        }
+
+        // 載入每日報表
+        async function loadDailyReport() {
+            const date = document.getElementById('reportDate').value;
+            try {
+                const response = await fetch(`/api/reports/daily?date=${date}`);
+                const data = await response.json();
+                
+                let tableHTML = `
+                    <h4>📅 每日出勤報表 - ${date}</h4>
+                    <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
+                        <thead>
+                            <tr style="background: #f8f9fa;">
+                                <th style="padding: 12px; border: 1px solid #ddd;">員工編號</th>
+                                <th style="padding: 12px; border: 1px solid #ddd;">姓名</th>
+                                <th style="padding: 12px; border: 1px solid #ddd;">部門</th>
+                                <th style="padding: 12px; border: 1px solid #ddd;">上班時間</th>
+                                <th style="padding: 12px; border: 1px solid #ddd;">下班時間</th>
+                                <th style="padding: 12px; border: 1px solid #ddd;">工作時數</th>
+                                <th style="padding: 12px; border: 1px solid #ddd;">狀態</th>
+                                <th style="padding: 12px; border: 1px solid #ddd;">IP地址</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+                
+                if (data.length === 0) {
+                    tableHTML += '<tr><td colspan="8" style="padding: 20px; text-align: center;">當日無出勤記錄</td></tr>';
+                } else {
+                    data.forEach(record => {
+                        const statusColor = record.status.includes('遲到') ? 'red' : 
+                                          record.status === '未打卡' ? 'orange' : 'green';
+                        
+                        tableHTML += `
+                            <tr>
+                                <td style="padding: 12px; border: 1px solid #ddd;">${record.employee_id}</td>
+                                <td style="padding: 12px; border: 1px solid #ddd;">${record.name}</td>
+                                <td style="padding: 12px; border: 1px solid #ddd;">${record.department || '-'}</td>
+                                <td style="padding: 12px; border: 1px solid #ddd;">${record.clock_in ? record.clock_in.split(' ')[1] : '-'}</td>
+                                <td style="padding: 12px; border: 1px solid #ddd;">${record.clock_out ? record.clock_out.split(' ')[1] : '-'}</td>
+                                <td style="padding: 12px; border: 1px solid #ddd;">${record.working_hours}h</td>
+                                <td style="padding: 12px; border: 1px solid #ddd; color: ${statusColor};">${record.status}</td>
+                                <td style="padding: 12px; border: 1px solid #ddd;">${record.ip_address}</td>
+                            </tr>
+                        `;
+                    });
+                }
+                
+                tableHTML += '</tbody></table>';
+                document.getElementById('reportContent').innerHTML = tableHTML;
+            } catch (error) {
+                document.getElementById('reportContent').innerHTML = '<div class="alert alert-error">載入每日報表失敗：' + error.message + '</div>';
+            }
+        }
+
+        // 載入月度報表
+        async function loadMonthlyReport() {
+            const year = document.getElementById('reportYear').value;
+            const month = document.getElementById('reportMonth').value;
+            
+            try {
+                const response = await fetch(`/api/reports/monthly?year=${year}&month=${month}`);
+                const data = await response.json();
+                
+                let tableHTML = `
+                    <h4>📈 月度出勤報表 - ${year}年${month}月</h4>
+                    <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
+                        <thead>
+                            <tr style="background: #f8f9fa;">
+                                <th style="padding: 12px; border: 1px solid #ddd;">員工編號</th>
+                                <th style="padding: 12px; border: 1px solid #ddd;">姓名</th>
+                                <th style="padding: 12px; border: 1px solid #ddd;">部門</th>
+                                <th style="padding: 12px; border: 1px solid #ddd;">出勤天數</th>
+                                <th style="padding: 12px; border: 1px solid #ddd;">總工時</th>
+                                <th style="padding: 12px; border: 1px solid #ddd;">平均工時</th>
+                                <th style="padding: 12px; border: 1px solid #ddd;">遲到次數</th>
+                                <th style="padding: 12px; border: 1px solid #ddd;">打卡完整度</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+                
+                if (data.length === 0) {
+                    tableHTML += '<tr><td colspan="8" style="padding: 20px; text-align: center;">當月無出勤記錄</td></tr>';
+                } else {
+                    data.forEach(record => {
+                        const completeness = record.checkin_count === record.checkout_count ? '完整' : '不完整';
+                        const completenessColor = completeness === '完整' ? 'green' : 'orange';
+                        
+                        tableHTML += `
+                            <tr>
+                                <td style="padding: 12px; border: 1px solid #ddd;">${record.employee_id}</td>
+                                <td style="padding: 12px; border: 1px solid #ddd;">${record.name}</td>
+                                <td style="padding: 12px; border: 1px solid #ddd;">${record.department || '-'}</td>
+                                <td style="padding: 12px; border: 1px solid #ddd;">${record.work_days}天</td>
+                                <td style="padding: 12px; border: 1px solid #ddd;">${record.total_hours}h</td>
+                                <td style="padding: 12px; border: 1px solid #ddd;">${record.avg_hours}h</td>
+                                <td style="padding: 12px; border: 1px solid #ddd; color: ${record.late_count > 0 ? 'red' : 'green'};">${record.late_count}次</td>
+                                <td style="padding: 12px; border: 1px solid #ddd; color: ${completenessColor};">${completeness}</td>
+                            </tr>
+                        `;
+                    });
+                }
+                
+                tableHTML += '</tbody></table>';
+                document.getElementById('reportContent').innerHTML = tableHTML;
+            } catch (error) {
+                document.getElementById('reportContent').innerHTML = '<div class="alert alert-error">載入月度報表失敗：' + error.message + '</div>';
+            }
+        }
+
+        // 載入部門報表
+        async function loadDepartmentReport() {
+            const date = document.getElementById('reportDate').value;
+            
+            try {
+                const response = await fetch(`/api/reports/department?date=${date}`);
+                const data = await response.json();
+                
+                let tableHTML = `
+                    <h4>🏢 部門出勤摘要 - ${date}</h4>
+                    <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
+                        <thead>
+                            <tr style="background: #f8f9fa;">
+                                <th style="padding: 12px; border: 1px solid #ddd;">部門</th>
+                                <th style="padding: 12px; border: 1px solid #ddd;">總員工數</th>
+                                <th style="padding: 12px; border: 1px solid #ddd;">出勤人數</th>
+                                <th style="padding: 12px; border: 1px solid #ddd;">缺勤人數</th>
+                                <th style="padding: 12px; border: 1px solid #ddd;">遲到人數</th>
+                                <th style="padding: 12px; border: 1px solid #ddd;">出勤率</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+                
+                if (data.length === 0) {
+                    tableHTML += '<tr><td colspan="6" style="padding: 20px; text-align: center;">暫無部門資料</td></tr>';
+                } else {
+                    data.forEach(dept => {
+                        const rateColor = dept.attendance_rate >= 90 ? 'green' : 
+                                        dept.attendance_rate >= 80 ? 'orange' : 'red';
+                        
+                        tableHTML += `
+                            <tr>
+                                <td style="padding: 12px; border: 1px solid #ddd;">${dept.department}</td>
+                                <td style="padding: 12px; border: 1px solid #ddd;">${dept.total_employees}</td>
+                                <td style="padding: 12px; border: 1px solid #ddd;">${dept.present_count}</td>
+                                <td style="padding: 12px; border: 1px solid #ddd;">${dept.absent_count}</td>
+                                <td style="padding: 12px; border: 1px solid #ddd;">${dept.late_count}</td>
+                                <td style="padding: 12px; border: 1px solid #ddd; color: ${rateColor};">${dept.attendance_rate}%</td>
+                            </tr>
+                        `;
+                    });
+                }
+                
+                tableHTML += '</tbody></table>';
+                document.getElementById('reportContent').innerHTML = tableHTML;
+            } catch (error) {
+                document.getElementById('reportContent').innerHTML = '<div class="alert alert-error">載入部門報表失敗：' + error.message + '</div>';
+            }
+        }
+
+        // 載入遲到統計
+        async function loadLateReport() {
+            const year = document.getElementById('reportYear').value;
+            const month = document.getElementById('reportMonth').value;
+            
+            try {
+                const response = await fetch(`/api/reports/late?year=${year}&month=${month}`);
+                const data = await response.json();
+                
+                let tableHTML = `
+                    <h4>⏰ 遲到統計報表 - ${year}年${month}月</h4>
+                    <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
+                        <thead>
+                            <tr style="background: #f8f9fa;">
+                                <th style="padding: 12px; border: 1px solid #ddd;">姓名</th>
+                                <th style="padding: 12px; border: 1px solid #ddd;">部門</th>
+                                <th style="padding: 12px; border: 1px solid #ddd;">遲到次數</th>
+                                <th style="padding: 12px; border: 1px solid #ddd;">遲到日期</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+                
+                if (data.length === 0) {
+                    tableHTML += '<tr><td colspan="4" style="padding: 20px; text-align: center; color: green;">🎉 本月無人遲到！</td></tr>';
+                } else {
+                    data.forEach(record => {
+                        tableHTML += `
+                            <tr>
+                                <td style="padding: 12px; border: 1px solid #ddd;">${record.name}</td>
+                                <td style="padding: 12px; border: 1px solid #ddd;">${record.department}</td>
+                                <td style="padding: 12px; border: 1px solid #ddd; color: red;">${record.late_count}次</td>
+                                <td style="padding: 12px; border: 1px solid #ddd;">${record.late_dates.join(', ')}</td>
+                            </tr>
+                        `;
+                    });
+                }
+                
+                tableHTML += '</tbody></table>';
+                document.getElementById('reportContent').innerHTML = tableHTML;
+            } catch (error) {
+                document.getElementById('reportContent').innerHTML = '<div class="alert alert-error">載入遲到統計失敗：' + error.message + '</div>';
+            }
+        }
+
+        // 載入網路違規記錄
+        async function loadNetworkViolations() {
+            try {
+                const response = await fetch('/api/reports/network-violations');
+                const data = await response.json();
+                
+                let tableHTML = `
+                    <h4>🚫 網路違規記錄 (最近30天)</h4>
+                    <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
+                        <thead>
+                            <tr style="background: #f8f9fa;">
+                                <th style="padding: 12px; border: 1px solid #ddd;">時間</th>
+                                <th style="padding: 12px; border: 1px solid #ddd;">姓名</th>
+                                <th style="padding: 12px; border: 1px solid #ddd;">部門</th>
+                                <th style="padding: 12px; border: 1px solid #ddd;">操作</th>
+                                <th style="padding: 12px; border: 1px solid #ddd;">IP地址</th>
+                                <th style="padding: 12px; border: 1px solid #ddd;">網路資訊</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+                
+                if (data.length === 0) {
+                    tableHTML += '<tr><td colspan="6" style="padding: 20px; text-align: center; color: green;">🎉 近期無網路違規記錄！</td></tr>';
+                } else {
+                    data.forEach(record => {
+                        tableHTML += `
+                            <tr>
+                                <td style="padding: 12px; border: 1px solid #ddd;">${record.time}</td>
+                                <td style="padding: 12px; border: 1px solid #ddd;">${record.name}</td>
+                                <td style="padding: 12px; border: 1px solid #ddd;">${record.department}</td>
+                                <td style="padding: 12px; border: 1px solid #ddd;">${record.action}</td>
+                                <td style="padding: 12px; border: 1px solid #ddd; color: red;">${record.ip_address}</td>
+                                <td style="padding: 12px; border: 1px solid #ddd;">${record.network_info}</td>
+                            </tr>
+                        `;
+                    });
+                }
+                
+                tableHTML += '</tbody></table>';
+                document.getElementById('reportContent').innerHTML = tableHTML;
+            } catch (error) {
+                document.getElementById('reportContent').innerHTML = '<div class="alert alert-error">載入網路違規記錄失敗：' + error.message + '</div>';
+            }
+        }
+
+        // 導出報表
+        async function exportReport() {
+            const date = document.getElementById('reportDate').value;
+            const reportType = 'daily'; // 可以根據需要修改
+            
+            try {
+                const response = await fetch(`/api/reports/export/csv?type=${reportType}&date=${date}`);
+                
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `attendance_report_${date}.csv`;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                    
+                    alert('✅ 報表導出成功！');
+                } else {
+                    alert('❌ 導出失敗');
+                }
+            } catch (error) {
+                alert('❌ 導出錯誤：' + error.message);
+            }
         }
 
         // Enter鍵登入

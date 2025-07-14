@@ -1,12 +1,13 @@
-# admin_routes.py - 管理後台路由模組
-from flask import session, request, jsonify, render_template_string
+# admin_routes.py - 管理後台路由模組 (加入出勤報表)
+from flask import session, request, jsonify, render_template_string, Response
 from functools import wraps
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 from models import EmployeeManager, CompanySettings
 from network_security import NetworkSecurity
 from templates import INDEX_TEMPLATE, ADMIN_TEMPLATE
+from attendance_report import AttendanceReport
 
 # 台灣時區設定
 TW_TZ = pytz.timezone('Asia/Taipei')
@@ -175,3 +176,88 @@ def setup_admin_routes(app):
             'network_violations': network_violations,
             'attendance_rate': round((today_checkin / total_employees * 100) if total_employees > 0 else 0, 1)
         })
+
+    # === 新增出勤報表 API ===
+    
+    @app.route('/api/reports/daily')
+    @require_admin
+    def get_daily_report():
+        """每日出勤報表"""
+        date = request.args.get('date', datetime.now(TW_TZ).strftime('%Y-%m-%d'))
+        data = AttendanceReport.get_daily_summary(date)
+        return jsonify(data)
+    
+    @app.route('/api/reports/monthly')
+    @require_admin
+    def get_monthly_report():
+        """月度出勤報表"""
+        year = request.args.get('year', datetime.now(TW_TZ).year, type=int)
+        month = request.args.get('month', datetime.now(TW_TZ).month, type=int)
+        data = AttendanceReport.get_monthly_summary(year, month)
+        return jsonify(data)
+    
+    @app.route('/api/reports/department')
+    @require_admin
+    def get_department_report():
+        """部門出勤摘要"""
+        date = request.args.get('date', datetime.now(TW_TZ).strftime('%Y-%m-%d'))
+        data = AttendanceReport.get_department_summary(date)
+        return jsonify(data)
+    
+    @app.route('/api/reports/late')
+    @require_admin
+    def get_late_report():
+        """遲到統計報表"""
+        year = request.args.get('year', datetime.now(TW_TZ).year, type=int)
+        month = request.args.get('month', datetime.now(TW_TZ).month, type=int)
+        data = AttendanceReport.get_late_statistics(year, month)
+        return jsonify(data)
+    
+    @app.route('/api/reports/network-violations')
+    @require_admin
+    def get_network_violations():
+        """網路違規記錄"""
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        data = AttendanceReport.get_network_violations(start_date, end_date)
+        return jsonify(data)
+    
+    @app.route('/api/reports/employee/<employee_id>')
+    @require_admin
+    def get_employee_report(employee_id):
+        """個人詳細出勤報表"""
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        data = AttendanceReport.get_employee_detail_report(employee_id, start_date, end_date)
+        
+        if not data:
+            return jsonify({'error': '員工不存在'}), 404
+        
+        return jsonify(data)
+    
+    @app.route('/api/reports/export/csv')
+    @require_admin
+    def export_csv():
+        """導出 CSV 報表"""
+        report_type = request.args.get('type', 'daily')
+        date = request.args.get('date', datetime.now(TW_TZ).strftime('%Y-%m-%d'))
+        
+        if report_type == 'daily':
+            data = AttendanceReport.get_daily_summary(date)
+            filename = f'daily_report_{date}.csv'
+        elif report_type == 'department':
+            data = AttendanceReport.get_department_summary(date)
+            filename = f'department_report_{date}.csv'
+        else:
+            return jsonify({'error': '不支援的報表類型'}), 400
+        
+        csv_content = AttendanceReport.export_to_csv(data, filename)
+        
+        if not csv_content:
+            return jsonify({'error': '無資料可導出'}), 400
+        
+        return Response(
+            csv_content,
+            mimetype='text/csv',
+            headers={'Content-Disposition': f'attachment; filename={filename}'}
+        )

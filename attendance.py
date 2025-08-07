@@ -1,4 +1,4 @@
-# attendance.py - 出勤管理模組 (支援一天多次打卡)
+# attendance.py - 靈活打卡系統（各2次機會）
 import sqlite3
 from datetime import datetime, timedelta
 import pytz
@@ -9,23 +9,17 @@ from network_security import NetworkSecurity
 TW_TZ = pytz.timezone('Asia/Taipei')
 
 class AttendanceManager:
-    """出勤管理類"""
+    """出勤管理類 - 靈活打卡版"""
     
     @staticmethod
     def clock_in(employee_id, user_ip=None):
-        """上班打卡 - 支援多次上班打卡"""
+        """上班打卡 - 一天最多2次機會"""
         conn = sqlite3.connect('attendance.db')
         cursor = conn.cursor()
         
         today = datetime.now(TW_TZ).strftime('%Y-%m-%d')
         
-        # 檢查當前狀態 - 如果已經是上班狀態，不允許重複上班打卡
-        current_status = AttendanceManager.get_current_work_status(employee_id, today)
-        if current_status == 'working':
-            conn.close()
-            return {'success': False, 'message': '您目前已經是上班狀態，請先下班打卡'}
-        
-        # 檢查今日上班打卡次數（最多2次）
+        # 檢查今日上班打卡次數
         cursor.execute('''
             SELECT COUNT(*) FROM attendance_records 
             WHERE employee_id = ? AND DATE(taiwan_time) = ? AND action_type = 'clock_in'
@@ -35,6 +29,12 @@ class AttendanceManager:
         if clock_in_count >= 2:
             conn.close()
             return {'success': False, 'message': '今日上班打卡次數已達上限（2次）'}
+        
+        # 檢查當前狀態 - 如果已經是上班狀態，不允許重複上班打卡
+        current_status = AttendanceManager.get_current_work_status(employee_id, today)
+        if current_status == 'working':
+            conn.close()
+            return {'success': False, 'message': '您目前已經是上班狀態，請先下班打卡'}
         
         # 網路權限檢查
         network_result = NetworkSecurity.validate_punch_permission()
@@ -68,34 +68,31 @@ class AttendanceManager:
         conn.commit()
         conn.close()
         
-        # 判斷是第幾次上班打卡
-        punch_time = "上午上班" if clock_in_count == 0 else "下午上班"
+        # 提示訊息
+        attempt_msg = f"第{clock_in_count + 1}次" if clock_in_count > 0 else ""
         status_msg = " (遲到)" if status == 'late' else ""
+        remaining_msg = f"\n💡 今日還可上班打卡 {1 - clock_in_count} 次" if clock_in_count == 0 else ""
         
         return {
             'success': True, 
-            'message': f'{punch_time}打卡成功{status_msg}',
+            'message': f'上班打卡成功！{attempt_msg}',
             'time': taiwan_time,
             'status': status,
             'punch_count': clock_in_count + 1,
-            'network_info': network_result['network_info']
+            'network_info': network_result['network_info'],
+            'status_msg': status_msg,
+            'remaining_msg': remaining_msg
         }
     
     @staticmethod
     def clock_out(employee_id, user_ip=None):
-        """下班打卡 - 支援多次下班打卡"""
+        """下班打卡 - 一天最多2次機會"""
         conn = sqlite3.connect('attendance.db')
         cursor = conn.cursor()
         
         today = datetime.now(TW_TZ).strftime('%Y-%m-%d')
         
-        # 檢查當前狀態 - 必須是上班狀態才能下班打卡
-        current_status = AttendanceManager.get_current_work_status(employee_id, today)
-        if current_status != 'working':
-            conn.close()
-            return {'success': False, 'message': '您目前不是上班狀態，請先上班打卡'}
-        
-        # 檢查今日下班打卡次數（最多2次）
+        # 檢查今日下班打卡次數
         cursor.execute('''
             SELECT COUNT(*) FROM attendance_records 
             WHERE employee_id = ? AND DATE(taiwan_time) = ? AND action_type = 'clock_out'
@@ -105,6 +102,12 @@ class AttendanceManager:
         if clock_out_count >= 2:
             conn.close()
             return {'success': False, 'message': '今日下班打卡次數已達上限（2次）'}
+        
+        # 檢查當前狀態 - 必須是上班狀態才能下班打卡
+        current_status = AttendanceManager.get_current_work_status(employee_id, today)
+        if current_status != 'working':
+            conn.close()
+            return {'success': False, 'message': '您目前不是上班狀態，請先上班打卡'}
         
         # 網路權限檢查
         network_result = NetworkSecurity.validate_punch_permission()
@@ -126,21 +129,23 @@ class AttendanceManager:
         conn.commit()
         conn.close()
         
-        # 計算當前階段工作時數和總工作時數
-        current_session_hours = AttendanceManager.calculate_current_session_hours(employee_id, today)
+        # 計算工作時數
         total_working_hours = AttendanceManager.calculate_daily_hours(employee_id, today)
+        current_session_hours = AttendanceManager.calculate_current_session_hours(employee_id, today)
         
-        # 判斷是第幾次下班打卡
-        punch_time = "中午下班" if clock_out_count == 0 else "晚上下班"
+        # 提示訊息
+        attempt_msg = f"第{clock_out_count + 1}次" if clock_out_count > 0 else ""
+        remaining_msg = f"\n💡 今日還可下班打卡 {1 - clock_out_count} 次" if clock_out_count == 0 else ""
         
         return {
             'success': True, 
-            'message': f'{punch_time}打卡成功',
+            'message': f'下班打卡成功！{attempt_msg}',
             'time': taiwan_time,
             'current_session_hours': current_session_hours,
             'total_working_hours': total_working_hours,
             'punch_count': clock_out_count + 1,
-            'network_info': network_result['network_info']
+            'network_info': network_result['network_info'],
+            'remaining_msg': remaining_msg
         }
     
     @staticmethod
@@ -238,19 +243,19 @@ class AttendanceManager:
     
     @staticmethod
     def get_today_status(employee_id):
-        """獲取今日狀態詳情 - 支援多次打卡顯示"""
+        """獲取今日狀態詳情"""
         today = datetime.now(TW_TZ).strftime('%Y-%m-%d')
         today_records = AttendanceManager.get_today_records(employee_id)
         current_status = AttendanceManager.get_current_work_status(employee_id, today)
         working_hours = AttendanceManager.calculate_daily_hours(employee_id, today)
         
-        status_emoji = "🟢 工作中" if current_status == 'working' else "🔴 未工作"
+        status_emoji = "🟢 上班中" if current_status == 'working' else "🔴 未上班"
         
         # 統計打卡次數
         clock_in_count = len([r for r in today_records if r[0] == 'clock_in'])
         clock_out_count = len([r for r in today_records if r[0] == 'clock_out'])
         
-        result = f"🟣 今日狀態\n📊 今日狀態報告\n"
+        result = f"📊 今日出勤狀態\n"
         result += f"─" * 20 + "\n"
         result += f"目前狀態：{status_emoji}\n"
         result += f"上班打卡：{clock_in_count}/2 次\n"
@@ -263,16 +268,18 @@ class AttendanceManager:
         
         if today_records:
             result += f"\n📝 今日記錄：\n"
-            for i, (action_type, time_str) in enumerate(today_records):
-                if action_type == 'clock_in':
-                    emoji = "🌅" if i == 0 else "🌤️"
-                    label = "上午上班" if i == 0 else "下午上班"
-                else:
-                    emoji = "🍽️" if clock_out_count == 1 else "🌙"
-                    label = "中午下班" if i == 1 else "晚上下班"
-                
+            for action_type, time_str in today_records:
+                emoji = "🌅" if action_type == "clock_in" else "🌙"
+                action_name = "上班" if action_type == "clock_in" else "下班"
                 time_only = time_str.split(' ')[1]
-                result += f"{emoji} {label} {time_only}\n"
+                result += f"{emoji} {action_name}打卡 {time_only}\n"
+        
+        # 顯示剩餘打卡機會
+        result += f"\n💡 剩餘機會：\n"
+        if clock_in_count < 2:
+            result += f"• 還可上班打卡 {2 - clock_in_count} 次\n"
+        if clock_out_count < 2:
+            result += f"• 還可下班打卡 {2 - clock_out_count} 次\n"
         
         return result
     
@@ -292,7 +299,7 @@ class AttendanceManager:
     
     @staticmethod
     def get_attendance_records(employee_id, limit=10):
-        """獲取出勤記錄 - 支援多次打卡顯示"""
+        """獲取出勤記錄"""
         conn = sqlite3.connect('attendance.db')
         cursor = conn.cursor()
         
@@ -308,38 +315,17 @@ class AttendanceManager:
             return "📝 暫無出勤記錄"
         
         result = "📋 最近出勤記錄：\n" + "─" * 30 + "\n"
-        
-        # 按日期分組顯示
-        current_date = None
-        daily_records = {}
-        
         for action_type, time_str, status, network_info in records:
-            date_part = time_str.split(' ')[0]
-            time_part = time_str.split(' ')[1]
+            action_map = {
+                'clock_in': '🟢 上班',
+                'clock_out': '🔴 下班'
+            }
             
-            if date_part not in daily_records:
-                daily_records[date_part] = []
-            daily_records[date_part].append((action_type, time_part, status))
-        
-        # 顯示每日記錄
-        for date, day_records in sorted(daily_records.items(), reverse=True):
-            result += f"📅 {date}\n"
+            status_emoji = ""
+            if status == 'late':
+                status_emoji = " ⚠️ 遲到"
             
-            clock_in_count = 0
-            clock_out_count = 0
-            
-            for action_type, time_part, status in day_records:
-                if action_type == 'clock_in':
-                    clock_in_count += 1
-                    label = "🌅 上午上班" if clock_in_count == 1 else "🌤️ 下午上班"
-                    status_emoji = " ⚠️" if status == 'late' else ""
-                    result += f"  {label} {time_part}{status_emoji}\n"
-                else:
-                    clock_out_count += 1
-                    label = "🍽️ 中午下班" if clock_out_count == 1 else "🌙 晚上下班"
-                    result += f"  {label} {time_part}\n"
-            
-            result += "\n"
+            result += f"{action_map.get(action_type, action_type)} {time_str}{status_emoji}\n"
         
         return result
     
@@ -388,32 +374,8 @@ class AttendanceManager:
 📈 平均日工時：{total_hours/work_days if work_days > 0 else 0:.1f} 小時
 ⚠️ 遲到次數：{late_count} 次
 
-🕘 支援多段工時：
-• 上午：上班 → 中午下班
-• 下午：下午上班 → 晚上下班
-• 每日最多可打卡 4 次
+🔄 打卡機會：
+• 每日上班打卡：2 次機會
+• 每日下班打卡：2 次機會
 
 💡 如需詳細報表，請聯繫管理員"""
-    
-    @staticmethod
-    def get_punch_suggestions(employee_id):
-        """獲取打卡建議"""
-        today = datetime.now(TW_TZ).strftime('%Y-%m-%d')
-        current_status = AttendanceManager.get_current_work_status(employee_id, today)
-        today_records = AttendanceManager.get_today_records(employee_id)
-        
-        clock_in_count = len([r for r in today_records if r[0] == 'clock_in'])
-        clock_out_count = len([r for r in today_records if r[0] == 'clock_out'])
-        
-        if clock_in_count == 0:
-            return "💡 建議：請進行「上午上班」打卡"
-        elif clock_in_count == 1 and clock_out_count == 0 and current_status == 'working':
-            return "💡 建議：中午休息時請「中午下班」打卡"
-        elif clock_in_count == 1 and clock_out_count == 1:
-            return "💡 建議：下午開始工作時請「下午上班」打卡"
-        elif clock_in_count == 2 and clock_out_count == 1 and current_status == 'working':
-            return "💡 建議：下班時請進行「晚上下班」打卡"
-        elif clock_in_count == 2 and clock_out_count == 2:
-            return "✅ 今日打卡已完成！"
-        else:
-            return "💡 根據目前狀態選擇適合的打卡類型"

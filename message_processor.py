@@ -1,4 +1,4 @@
-# message_processor.py - LINE Bot 訊息處理模組 (支援多次打卡)
+# message_processor.py - 靈活打卡訊息處理模組
 import sqlite3
 from linebot.models import TextSendMessage
 from models import EmployeeManager
@@ -6,7 +6,7 @@ from attendance import AttendanceManager
 from network_security import NetworkSecurity
 
 class MessageProcessor:
-    """訊息處理器"""
+    """訊息處理器 - 靈活打卡版"""
     
     @staticmethod
     def process_command(line_user_id, message_text):
@@ -32,19 +32,17 @@ class MessageProcessor:
         employee_id = employee['employee_id']
         role = employee['role']
         
-        # 基本出勤功能 - 支援多次打卡
-        if command in ['上班打卡', '上班', '上午上班', '下午上班']:
+        # 基本出勤功能 - 靈活打卡版
+        if command in ['上班打卡', '上班', '打卡上班']:
             return MessageProcessor.handle_clock_in(employee_id)
-        elif command in ['下班打卡', '下班', '中午下班', '晚上下班']:
+        elif command in ['下班打卡', '下班', '打卡下班']:
             return MessageProcessor.handle_clock_out(employee_id)
-        elif command in ['今日狀態', '狀態']:
+        elif command in ['今日狀態', '狀態', '打卡狀態']:
             return MessageProcessor.get_today_status(employee_id)
-        elif command in ['查看記錄', '記錄']:
+        elif command in ['查看記錄', '記錄', '出勤記錄']:
             return MessageProcessor.get_attendance_records(employee_id)
         elif command in ['個人統計', '統計']:
             return MessageProcessor.get_personal_stats(employee_id)
-        elif command in ['打卡建議', '建議']:
-            return MessageProcessor.get_punch_suggestions(employee_id)
         elif command in ['請假申請', '請假']:
             return MessageProcessor.show_leave_options()
         elif command in ['網路檢查', '檢查網路']:
@@ -83,46 +81,35 @@ class MessageProcessor:
     
     @staticmethod
     def handle_clock_in(employee_id):
-        """處理上班打卡 - 支援多次打卡"""
+        """處理上班打卡"""
         result = AttendanceManager.clock_in(employee_id)
         
         if result['success']:
-            status_text = ""
-            if result['status'] == 'late':
-                status_text = "\n⚠️ 注意：您已遲到"
-            
+            status_text = result.get('status_msg', '')
             network_text = f"\n🌐 網路狀態：{result['network_info']}"
-            punch_info = f"\n📊 今日第 {result['punch_count']} 次上班打卡"
+            remaining_text = result.get('remaining_msg', '')
             
-            # 獲取打卡建議
-            suggestion = AttendanceManager.get_punch_suggestions(employee_id)
-            suggestion_text = f"\n\n{suggestion}"
-            
-            return f"✅ {result['message']}！\n⏰ 時間：{result['time']}{status_text}{network_text}{punch_info}{suggestion_text}\n\n祝您工作順利！"
+            return f"✅ {result['message']}\n⏰ 時間：{result['time']}{status_text}{network_text}{remaining_text}\n\n祝您工作順利！"
         else:
             if result.get('network_error'):
-                return f"🚫 打卡失敗\n\n{result['message']}\n\n💡 請確認：\n• 是否連接公司WiFi\n• 是否在公司網路環境內\n• 聯繫IT部門確認網路設定"
+                return f"🚫 上班打卡失敗\n\n{result['message']}\n\n💡 請確認：\n• 是否連接公司WiFi\n• 是否在公司網路環境內\n• 聯繫IT部門確認網路設定"
             return f"❌ {result['message']}"
     
     @staticmethod
     def handle_clock_out(employee_id):
-        """處理下班打卡 - 支援多次打卡"""
+        """處理下班打卡"""
         result = AttendanceManager.clock_out(employee_id)
         
         if result['success']:
             network_text = f"\n🌐 網路狀態：{result['network_info']}"
-            session_text = f"\n⏰ 本次工時：{result['current_session_hours']} 小時"
+            hours_text = f"\n⏰ 本次工時：{result['current_session_hours']} 小時"
             total_text = f"\n📊 今日總工時：{result['total_working_hours']} 小時"
-            punch_info = f"\n📝 今日第 {result['punch_count']} 次下班打卡"
+            remaining_text = result.get('remaining_msg', '')
             
-            # 獲取打卡建議
-            suggestion = AttendanceManager.get_punch_suggestions(employee_id)
-            suggestion_text = f"\n\n{suggestion}"
-            
-            return f"✅ {result['message']}！\n⏰ 時間：{result['time']}{session_text}{total_text}{network_text}{punch_info}{suggestion_text}\n\n辛苦了！"
+            return f"✅ {result['message']}\n⏰ 時間：{result['time']}{hours_text}{total_text}{network_text}{remaining_text}\n\n辛苦了！"
         else:
             if result.get('network_error'):
-                return f"🚫 打卡失敗\n\n{result['message']}\n\n💡 請確認：\n• 是否連接公司WiFi\n• 是否在公司網路環境內\n• 聯繫IT部門確認網路設定"
+                return f"🚫 下班打卡失敗\n\n{result['message']}\n\n💡 請確認：\n• 是否連接公司WiFi\n• 是否在公司網路環境內\n• 聯繫IT部門確認網路設定"
             return f"❌ {result['message']}"
     
     @staticmethod
@@ -141,27 +128,6 @@ class MessageProcessor:
         return AttendanceManager.get_personal_stats(employee_id)
     
     @staticmethod
-    def get_punch_suggestions(employee_id):
-        """獲取打卡建議"""
-        suggestion = AttendanceManager.get_punch_suggestions(employee_id)
-        
-        return f"""💡 智能打卡建議
-
-{suggestion}
-
-🕘 多段工時說明：
-• 🌅 上午上班 → 🍽️ 中午下班
-• 🌤️ 下午上班 → 🌙 晚上下班
-
-📋 每日打卡流程：
-1️⃣ 上午到公司：「上班打卡」
-2️⃣ 中午休息：「下班打卡」
-3️⃣ 下午開始：「上班打卡」
-4️⃣ 晚上離開：「下班打卡」
-
-💡 系統會自動識別打卡時機！"""
-    
-    @staticmethod
     def check_network_status():
         """檢查當前網路狀態"""
         network_result = NetworkSecurity.check_punch_network()
@@ -175,7 +141,7 @@ class MessageProcessor:
 
 {'✅ 可以進行打卡' if network_result['allowed'] else '❌ 無法打卡，請檢查網路連接'}
 
-如有問題請聯繫IT部門"""
+💡 如有問題請聯繫IT部門"""
     
     @staticmethod
     def show_leave_options():
@@ -230,35 +196,36 @@ class MessageProcessor:
 • 查看允許網路 - 輸入「查看網路」
 • 網路檢查記錄 - 輸入「網路記錄」
 
-🔧 完整設定請使用管理介面
-"""
+🔧 完整設定請使用管理介面"""
     
     @staticmethod
     def get_help(role):
-        """獲取幫助訊息 - 支援多次打卡說明"""
+        """獲取幫助訊息"""
         base_help = """🤖 企業出勤管理系統
 
 👤 基本功能：
 • 上班打卡 / 下班打卡
 • 今日狀態 / 查看記錄
-• 個人統計 / 打卡建議
-• 請假申請 / 網路檢查
+• 個人統計 / 請假申請
+• 網路檢查
 
-🕘 多段工時支援：
-• 每日可上班打卡 2 次
-• 每日可下班打卡 2 次
-• 支援午休時間管理
-• 自動計算各時段工時
+🔄 靈活打卡特色：
+• 每日上班打卡：最多 2 次機會
+• 每日下班打卡：最多 2 次機會
+• 智能狀態檢查：防止重複打卡
+• 自動時數計算：支援多段工時
 
-💡 打卡流程：
-1️⃣ 上午上班 → 2️⃣ 中午下班
-3️⃣ 下午上班 → 4️⃣ 晚上下班
+💡 使用說明：
+🌅 上班時輸入「上班打卡」
+🌙 下班時輸入「下班打卡」
+📊 查看狀態輸入「今日狀態」
+📋 查看記錄輸入「查看記錄」
 
 🌐 網路限制：
 系統會檢查您的網路位置
 確保在公司環境內才能打卡
 
-💡 使用底部選單快速操作"""
+💡 輸入對應文字即可操作"""
         
         if role == 'ADMIN':
             admin_help = """
@@ -274,13 +241,13 @@ class MessageProcessor:
     
     @staticmethod
     def get_welcome_message():
-        """獲取歡迎訊息 - 包含多次打卡介紹"""
+        """獲取歡迎訊息"""
         return """🎉 歡迎使用企業出勤管理系統！
 
 本系統提供安全的企業級出勤管理：
 
 ✨ 主要功能：
-• 🕘 智能打卡（支援多段工時）
+• 🕘 靈活打卡（各2次機會）
 • 📊 出勤記錄與統計
 • 📝 請假申請
 • 🌐 網路安全控制
@@ -292,15 +259,17 @@ class MessageProcessor:
 方式二：管理員新增
 ➡️ 請管理員在後台新增您的帳號
 
-🕘 多段工時特色：
-• 支援午休時間管理
-• 每日最多 4 次打卡
-• 自動計算各時段工時
-• 智能打卡建議系統
+🔄 靈活打卡特色：
+• 每日上班打卡：2次機會
+• 每日下班打卡：2次機會
+• 智能防重複：避免連續相同打卡
+• 多段工時：自動計算各時段工時
 
-💡 標準打卡流程：
-🌅 上午上班 → 🍽️ 中午下班
-🌤️ 下午上班 → 🌙 晚上下班
+💡 基本操作：
+🌅 上班打卡 → 輸入「上班打卡」
+🌙 下班打卡 → 輸入「下班打卡」  
+📊 查看狀態 → 輸入「今日狀態」
+📋 查看記錄 → 輸入「查看記錄」
 
 🔒 安全特色：
 • 限制特定網路才能打卡
@@ -457,18 +426,18 @@ class MessageProcessor:
 部門：{department}
 權限：一般員工
 
-現在您可以開始使用多段工時打卡功能了！
+現在您可以開始使用靈活打卡功能了！
 
-🕘 打卡流程：
-1️⃣ 上午上班打卡
-2️⃣ 中午下班打卡（午休）
-3️⃣ 下午上班打卡
-4️⃣ 晚上下班打卡
+🔄 靈活打卡特色：
+• 每日上班打卡：2次機會
+• 每日下班打卡：2次機會
+• 智能狀態檢查：防止重複打卡
 
-快速操作：
-• 上班打卡 / 下班打卡
-• 今日狀態 / 打卡建議
-• 查看記錄 / 網路檢查
+💡 基本操作：
+🌅 上班時輸入「上班打卡」
+🌙 下班時輸入「下班打卡」
+📊 查看狀態輸入「今日狀態」
+📋 查看記錄輸入「查看記錄」
 
-💡 輸入「幫助」查看完整功能說明
-🌐 請在公司網路環境內打卡"""
+🌐 請在公司網路環境內進行打卡
+💡 輸入「幫助」查看完整功能說明"""

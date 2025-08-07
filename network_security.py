@@ -99,13 +99,15 @@ class NetworkSecurity:
         
         # 根據你的 ifconfig 輸出，自動加入可能的網路範圍
         common_networks = [
-            "147.92.150.0/24",      # 熱點網路
+            # "147.92.150.0/24",      # 熱點網路
             "172.20.10.0/24",      # iPhone 熱點網路
             "192.168.101.0/24",    # PPP 連接網路
             "10.243.0.0/16",       # feth 虛擬網路
             "192.168.1.0/24",      # 常見路由器網路
+            "192.168.1.110", 
             "192.168.0.0/24",      # 常見路由器網路
             "10.0.0.0/24",         # 常見私有網路
+            "147.92.150.192/28",
         ]
         
         # 如果能偵測到當前 IP，加入對應的網路範圍
@@ -119,6 +121,10 @@ class NetworkSecurity:
                     networks.append("172.20.10.0/24")
                 elif current_ip.startswith('192.168.101.'):
                     networks.append("192.168.101.0/24")
+                elif current_ip.startswith('147.92.150.'):
+                    networks.append("147.92.150.192/28")
+                elif current_ip.startswith('192.168.1.'):
+                    networks.append("192.168.1.0/24")
                 elif current_ip.startswith('10.243.'):
                     networks.append("10.243.0.0/16")
                 elif current_ip.startswith('192.168.'):
@@ -285,3 +291,98 @@ class NetworkSecurity:
             print(f"   {key}: {value}")
         
         return info
+
+
+
+
+# network_security.py - 網路安全管理模組 (不限定網路版本)
+# from flask import request
+# import ipaddress
+# import socket
+# import subprocess
+# import re
+# from models import CompanySettings
+
+# class NetworkSecurity:
+#     """網路安全管理類"""
+    
+#     @staticmethod
+#     def get_client_ip():
+#         """獲取客戶端真實IP地址"""
+#         # 檢查是否通過代理
+#         if request.headers.get('X-Forwarded-For'):
+#             return request.headers.get('X-Forwarded-For').split(',')[0].strip()
+#         elif request.headers.get('X-Real-IP'):
+#             return request.headers.get('X-Real-IP')
+#         else:
+#             return request.remote_addr
+    
+#     @staticmethod
+#     def is_allowed_network(ip_address):
+#         """檢查IP是否在允許的網路範圍內 - 修改為允許所有IP"""
+#         print(f"🔍 檢查 IP: {ip_address}")
+#         print(f"✅ 網路限制已停用，允許所有IP")
+        
+#         # 直接返回允許，不進行任何網路限制
+#         return True, f"網路限制已停用，允許所有IP訪問"
+    
+#     @staticmethod
+#     def check_punch_network():
+#         """檢查打卡網路權限 - 不限定網路版本"""
+#         client_ip = NetworkSecurity.get_client_ip()
+#         print(f"🔍 當前偵測到的客戶端 IP: {client_ip}")
+#         print(f"✅ 網路限制已停用")
+        
+#         return {
+#             'allowed': True,  # 始終允許
+#             'ip': client_ip,
+#             'message': '網路限制已停用，允許所有IP訪問'
+#         }
+    
+#     @staticmethod
+#     def validate_punch_permission():
+#         """驗證打卡權限 - 不限定網路版本"""
+#         client_ip = NetworkSecurity.get_client_ip()
+#         print(f"ℹ️ 網路檢查已停用，允許所有IP，當前IP: {client_ip}")
+        
+#         return {
+#             'success': True,  # 始終成功
+#             'network_info': "網路限制已停用，允許所有IP訪問",
+#             'ip': client_ip
+#         }
+    
+#     # 保留原有的其他方法以維持相容性
+#     @staticmethod
+#     def get_local_network_ip():
+#         """獲取本地網路 IP 地址"""
+#         try:
+#             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+#                 s.connect(("8.8.8.8", 80))
+#                 local_ip = s.getsockname()[0]
+#                 return local_ip
+#         except Exception:
+#             return None
+    
+#     @staticmethod
+#     def is_private_ip(ip):
+#         """檢查是否為私有 IP"""
+#         try:
+#             ip_obj = ipaddress.ip_address(ip)
+#             return ip_obj.is_private
+#         except ValueError:
+#             return False
+    
+#     @staticmethod
+#     def debug_network_info():
+#         """除錯用：顯示網路資訊"""
+#         info = {
+#             'client_ip': NetworkSecurity.get_client_ip(),
+#             'network_restriction': 'DISABLED - 允許所有IP',
+#             'status': '網路限制已停用'
+#         }
+        
+#         print("🔍 網路除錯資訊:")
+#         for key, value in info.items():
+#             print(f"   {key}: {value}")
+        
+#         return info

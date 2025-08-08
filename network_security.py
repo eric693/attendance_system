@@ -108,6 +108,7 @@ class NetworkSecurity:
             "192.168.0.0/24",      # 常見路由器網路
             "10.0.0.0/24",         # 常見私有網路
             "147.92.150.192/28",
+            "147.92.149.0/24",
         ]
         
         # 如果能偵測到當前 IP，加入對應的網路範圍
@@ -123,6 +124,8 @@ class NetworkSecurity:
                     networks.append("192.168.101.0/24")
                 elif current_ip.startswith('147.92.150.'):
                     networks.append("147.92.150.192/28")
+                elif current_ip.startswith('147.92.149.'):
+                    networks.append("147.92.149.0/24")
                 elif current_ip.startswith('192.168.1.'):
                     networks.append("192.168.1.0/24")
                 elif current_ip.startswith('10.243.'):

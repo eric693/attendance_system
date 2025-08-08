@@ -93,7 +93,7 @@ INDEX_TEMPLATE = '''
         
         <div class="network-info">
             <h4>🌐 網路設定資訊</h4>
-            <p><strong>允許打卡網路：</strong>172.20.10.0/24, 192.168.101.0/24, 192.168.1.0/24, 147.92.150.192/28</p>
+            <p><strong>允許打卡網路：</strong>172.20.10.0/24, 192.168.101.0/24, 192.168.1.0/24, 147.92.150.192/28, , 147.92.149.0/24</p>
             <p><small>僅在此網路範圍內可以進行打卡操作</small></p>
         </div>
         
@@ -332,7 +332,7 @@ ADMIN_TEMPLATE = '''
                     <div style="margin-bottom: 15px;">
                         <label for="allowedNetworks"><strong>允許的網路範圍：</strong></label>
                         <textarea id="allowedNetworks" class="form-textarea" 
-                                placeholder="例如：172.20.10.0/24, 192.168.101.0/24, 192.168.1.0/24, 147.92.150.192/28"></textarea>
+                                placeholder="例如：172.20.10.0/24, 192.168.101.0/24, 192.168.1.0/24, 147.92.150.192/28, 147.92.149.0/24"></textarea>
                     </div>
                     
                     <div style="margin-bottom: 15px;">

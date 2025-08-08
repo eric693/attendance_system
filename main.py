@@ -70,7 +70,7 @@ if __name__ == "__main__":  # ✅ 修正：使用雙底線而非雙星號
     # 自動更新網路設定
     try:
         from models import CompanySettings
-        CompanySettings.update_setting('allowed_networks', '172.20.10.0/24, 192.168.101.0/24, 192.168.1.0/24, 147.92.150.192/28', 'system')
+        CompanySettings.update_setting('allowed_networks', '172.20.10.0/24, 192.168.101.0/24, 192.168.1.0/24, 147.92.150.192/28,147.92.149.0/24', 'system')
         print("✅ 網路設定已自動更新")
     except Exception as e:
         print(f"⚠️ 網路設定更新失敗: {e}")

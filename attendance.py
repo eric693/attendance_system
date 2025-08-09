@@ -70,7 +70,6 @@ class AttendanceManager:
         
         # 提示訊息
         attempt_msg = f"第{clock_in_count + 1}次" if clock_in_count > 0 else ""
-        status_msg = " (遲到)" if status == 'late' else ""
         remaining_msg = f"\n💡 今日還可上班打卡 {1 - clock_in_count} 次" if clock_in_count == 0 else ""
         
         return {
@@ -80,7 +79,6 @@ class AttendanceManager:
             'status': status,
             'punch_count': clock_in_count + 1,
             'network_info': network_result['network_info'],
-            'status_msg': status_msg,
             'remaining_msg': remaining_msg
         }
     
@@ -322,8 +320,6 @@ class AttendanceManager:
             }
             
             status_emoji = ""
-            if status == 'late':
-                status_emoji = " ⚠️ 遲到"
             
             result += f"{action_map.get(action_type, action_type)} {time_str}{status_emoji}\n"
         

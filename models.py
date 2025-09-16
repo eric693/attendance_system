@@ -88,6 +88,48 @@ def init_db():
         )
     ''')
     
+    # 新增員工薪資設定表
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS employee_salary (
+            employee_id TEXT PRIMARY KEY,
+            base_salary REAL DEFAULT 0,        -- 基本薪資（月薪制）
+            hourly_rate REAL DEFAULT 200,      -- 時薪
+            overtime_rate REAL DEFAULT 300,    -- 加班費時薪
+            bonus REAL DEFAULT 0,              -- 獎金
+            deductions REAL DEFAULT 0,         -- 扣款
+            salary_type TEXT DEFAULT 'hourly', -- 薪資類型：monthly/hourly
+            effective_date DATE,                -- 生效日期
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (employee_id) REFERENCES employees (employee_id)
+        )
+    ''')
+    
+    # 新增薪資計算記錄表
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS salary_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            employee_id TEXT,
+            year INTEGER,
+            month INTEGER,
+            work_days INTEGER,
+            total_hours REAL,
+            overtime_hours REAL,
+            late_count INTEGER,
+            base_salary REAL,
+            hourly_pay REAL,
+            overtime_pay REAL,
+            bonus REAL,
+            gross_salary REAL,
+            deductions REAL,
+            late_penalty REAL,
+            net_salary REAL,
+            calculated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            calculated_by TEXT,
+            FOREIGN KEY (employee_id) REFERENCES employees (employee_id)
+        )
+    ''')
+    
     # 建立公司設定表
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS company_settings (
@@ -148,6 +190,95 @@ def init_db():
     
     conn.commit()
     conn.close()
+
+class SalaryManager:
+    """薪資管理類"""
+    
+    @staticmethod
+    def set_employee_salary(employee_id, salary_data, updated_by='system'):
+        """設定員工薪資"""
+        conn = sqlite3.connect('attendance.db')
+        cursor = conn.cursor()
+        
+        now = datetime.now(TW_TZ).strftime('%Y-%m-%d %H:%M:%S')
+        
+        cursor.execute('''
+            INSERT OR REPLACE INTO employee_salary 
+            (employee_id, base_salary, hourly_rate, overtime_rate, bonus, 
+             deductions, salary_type, effective_date, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (employee_id, 
+              salary_data.get('base_salary', 0),
+              salary_data.get('hourly_rate', 200),
+              salary_data.get('overtime_rate', 300),
+              salary_data.get('bonus', 0),
+              salary_data.get('deductions', 0),
+              salary_data.get('salary_type', 'hourly'),
+              salary_data.get('effective_date', datetime.now(TW_TZ).strftime('%Y-%m-%d')),
+              now))
+        
+        conn.commit()
+        conn.close()
+    
+    @staticmethod
+    def get_employee_salary(employee_id):
+        """獲取員工薪資設定"""
+        conn = sqlite3.connect('attendance.db')
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT base_salary, hourly_rate, overtime_rate, bonus, 
+                   deductions, salary_type, effective_date
+            FROM employee_salary 
+            WHERE employee_id = ?
+        ''', (employee_id,))
+        
+        result = cursor.fetchone()
+        conn.close()
+        
+        if result:
+            return {
+                'base_salary': result[0],
+                'hourly_rate': result[1],
+                'overtime_rate': result[2],
+                'bonus': result[3],
+                'deductions': result[4],
+                'salary_type': result[5],
+                'effective_date': result[6]
+            }
+        return None
+    
+    @staticmethod
+    def save_salary_record(employee_id, salary_data, calculated_by='system'):
+        """保存薪資計算記錄"""
+        conn = sqlite3.connect('attendance.db')
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO salary_records 
+            (employee_id, year, month, work_days, total_hours, overtime_hours,
+             late_count, base_salary, hourly_pay, overtime_pay, bonus,
+             gross_salary, deductions, late_penalty, net_salary, calculated_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (employee_id,
+              salary_data['year'],
+              salary_data['month'],
+              salary_data['work_stats']['work_days'],
+              salary_data['work_stats']['total_hours'],
+              salary_data['work_stats']['overtime_hours'],
+              salary_data['work_stats']['late_count'],
+              salary_data['base_salary'],
+              salary_data['hourly_pay'],
+              salary_data['overtime_pay'],
+              salary_data['bonus'],
+              salary_data['gross_salary'],
+              salary_data['deductions'],
+              salary_data['late_penalty'],
+              salary_data['net_salary'],
+              calculated_by))
+        
+        conn.commit()
+        conn.close()
 
 class EmployeeManager:
     """員工管理類"""

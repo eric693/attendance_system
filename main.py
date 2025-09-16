@@ -9,6 +9,8 @@ from linebot.models import MessageEvent, TextMessage, FollowEvent
 from models import init_db
 from message_processor import MessageProcessor
 from admin_routes import setup_admin_routes
+from salary_calculator import SalaryCalculator
+from models import SalaryManager
 
 # 初始化 Flask 應用
 app = Flask(__name__)
@@ -42,9 +44,11 @@ def handle_message(event):
     user_id = event.source.user_id
     message_text = event.message.text
     
-    response_text = MessageProcessor.process_command(user_id, message_text)
-    line_bot_api.reply_message(event.reply_token, 
-                              MessageProcessor.create_text_message(response_text))
+    response = MessageProcessor.process_command(user_id, message_text)
+    
+    # 使用更新後的 create_text_message 方法
+    message_to_send = MessageProcessor.create_text_message(response)
+    line_bot_api.reply_message(event.reply_token, message_to_send)
 
 @handler.add(FollowEvent)
 def handle_follow(event):

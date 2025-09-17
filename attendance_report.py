@@ -1,4 +1,4 @@
-# attendance_report.py - 簡化版出勤報表模組
+# attendance_report.py - 簡化版出勤報表模組（移除遲到功能）
 import sqlite3
 from datetime import datetime, timedelta
 import pytz
@@ -8,7 +8,7 @@ from models import CompanySettings
 TW_TZ = pytz.timezone('Asia/Taipei')
 
 class AttendanceReport:
-    """出勤報表生成器 - 簡化版"""
+    """出勤報表生成器 - 簡化版（移除遲到功能）"""
     
     @staticmethod
     def get_daily_summary(date=None):
@@ -27,7 +27,6 @@ class AttendanceReport:
                 e.department,
                 MIN(CASE WHEN ar.action_type = 'clock_in' THEN ar.taiwan_time END) as clock_in_time,
                 MIN(CASE WHEN ar.action_type = 'clock_out' THEN ar.taiwan_time END) as clock_out_time,
-                MAX(CASE WHEN ar.action_type = 'clock_in' THEN ar.status END) as status,
                 MAX(CASE WHEN ar.action_type = 'clock_in' THEN ar.ip_address END) as ip_address
             FROM employees e
             LEFT JOIN attendance_records ar ON e.employee_id = ar.employee_id 
@@ -43,7 +42,7 @@ class AttendanceReport:
         # 處理記錄
         results = []
         for record in records:
-            employee_id, name, department, clock_in, clock_out, status, ip = record
+            employee_id, name, department, clock_in, clock_out, ip = record
             
             working_hours = 0
             if clock_in and clock_out:
@@ -61,9 +60,6 @@ class AttendanceReport:
             elif clock_in:
                 attendance_status = "未下班"
             
-            if status == 'late':
-                attendance_status += " (遲到)"
-            
             results.append({
                 'employee_id': employee_id,
                 'name': name,
@@ -79,7 +75,7 @@ class AttendanceReport:
     
     @staticmethod
     def get_monthly_summary(year=None, month=None):
-        """月度出勤摘要"""
+        """月度出勤摘要 - 移除打卡完整度"""
         if not year:
             year = datetime.now(TW_TZ).year
         if not month:
@@ -88,16 +84,13 @@ class AttendanceReport:
         conn = sqlite3.connect('attendance.db')
         cursor = conn.cursor()
         
-        # 月度統計
+        # 月度統計 - 移除打卡次數統計
         cursor.execute('''
             SELECT 
                 e.employee_id,
                 e.name,
                 e.department,
-                COUNT(DISTINCT DATE(ar.taiwan_time)) as work_days,
-                COUNT(CASE WHEN ar.action_type = 'clock_in' AND ar.status = 'late' THEN 1 END) as late_count,
-                COUNT(CASE WHEN ar.action_type = 'clock_in' THEN 1 END) as checkin_count,
-                COUNT(CASE WHEN ar.action_type = 'clock_out' THEN 1 END) as checkout_count
+                COUNT(DISTINCT DATE(ar.taiwan_time)) as work_days
             FROM employees e
             LEFT JOIN attendance_records ar ON e.employee_id = ar.employee_id 
                 AND strftime('%Y', ar.taiwan_time) = ? 
@@ -112,7 +105,7 @@ class AttendanceReport:
         # 計算每個員工的總工時
         results = []
         for record in records:
-            employee_id, name, department, work_days, late_count, checkin_count, checkout_count = record
+            employee_id, name, department, work_days = record
             
             # 計算總工時
             total_hours = AttendanceReport.calculate_monthly_hours(employee_id, year, month)
@@ -123,10 +116,8 @@ class AttendanceReport:
                 'department': department,
                 'work_days': work_days,
                 'total_hours': round(total_hours, 2),
-                'late_count': late_count,
-                'checkin_count': checkin_count,
-                'checkout_count': checkout_count,
                 'avg_hours': round(total_hours / work_days, 2) if work_days > 0 else 0
+                # 移除 checkin_count, checkout_count 相關欄位
             })
         
         conn.close()
@@ -209,8 +200,7 @@ class AttendanceReport:
             SELECT 
                 e.department,
                 COUNT(DISTINCT e.employee_id) as total_employees,
-                COUNT(DISTINCT CASE WHEN ar.action_type = 'clock_in' THEN e.employee_id END) as present_count,
-                COUNT(CASE WHEN ar.action_type = 'clock_in' AND ar.status = 'late' THEN 1 END) as late_count
+                COUNT(DISTINCT CASE WHEN ar.action_type = 'clock_in' THEN e.employee_id END) as present_count
             FROM employees e
             LEFT JOIN attendance_records ar ON e.employee_id = ar.employee_id 
                 AND DATE(ar.taiwan_time) = ?
@@ -228,7 +218,6 @@ class AttendanceReport:
                 'total_employees': record[1],
                 'present_count': record[2],
                 'absent_count': record[1] - record[2],
-                'late_count': record[3],
                 'attendance_rate': round((record[2] / record[1] * 100), 1) if record[1] > 0 else 0
             }
             for record in records
@@ -278,46 +267,6 @@ class AttendanceReport:
         ]
     
     @staticmethod
-    def get_late_statistics(year=None, month=None):
-        """遲到統計"""
-        if not year:
-            year = datetime.now(TW_TZ).year
-        if not month:
-            month = datetime.now(TW_TZ).month
-        
-        conn = sqlite3.connect('attendance.db')
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT 
-                e.name,
-                e.department,
-                COUNT(*) as late_count,
-                GROUP_CONCAT(DATE(ar.taiwan_time)) as late_dates
-            FROM attendance_records ar
-            JOIN employees e ON ar.employee_id = e.employee_id
-            WHERE ar.action_type = 'clock_in' 
-            AND ar.status = 'late'
-            AND strftime('%Y', ar.taiwan_time) = ? 
-            AND strftime('%m', ar.taiwan_time) = ?
-            GROUP BY e.employee_id, e.name, e.department
-            ORDER BY late_count DESC, e.department, e.name
-        ''', (str(year), f"{month:02d}"))
-        
-        records = cursor.fetchall()
-        conn.close()
-        
-        return [
-            {
-                'name': record[0],
-                'department': record[1],
-                'late_count': record[2],
-                'late_dates': record[3].split(',') if record[3] else []
-            }
-            for record in records
-        ]
-    
-    @staticmethod
     def get_employee_detail_report(employee_id, start_date=None, end_date=None):
         """個人詳細出勤報表"""
         if not start_date:
@@ -341,7 +290,6 @@ class AttendanceReport:
                 DATE(taiwan_time) as work_date,
                 MIN(CASE WHEN action_type = 'clock_in' THEN taiwan_time END) as clock_in,
                 MIN(CASE WHEN action_type = 'clock_out' THEN taiwan_time END) as clock_out,
-                MAX(CASE WHEN action_type = 'clock_in' THEN status END) as status,
                 MAX(CASE WHEN action_type = 'clock_in' THEN ip_address END) as ip
             FROM attendance_records 
             WHERE employee_id = ? 
@@ -356,10 +304,9 @@ class AttendanceReport:
         # 處理記錄
         daily_records = []
         total_hours = 0
-        late_count = 0
         
         for record in records:
-            work_date, clock_in, clock_out, status, ip = record
+            work_date, clock_in, clock_out, ip = record
             
             working_hours = 0
             if clock_in and clock_out:
@@ -371,15 +318,12 @@ class AttendanceReport:
                 except:
                     working_hours = 0
             
-            if status == 'late':
-                late_count += 1
-            
             daily_records.append({
                 'date': work_date,
                 'clock_in': clock_in.split(' ')[1] if clock_in else '-',
                 'clock_out': clock_out.split(' ')[1] if clock_out else '-',
                 'working_hours': working_hours,
-                'status': '遲到' if status == 'late' else '正常',
+                'status': '正常',
                 'ip_address': ip or '-'
             })
         
@@ -392,7 +336,6 @@ class AttendanceReport:
             'summary': {
                 'work_days': len([r for r in daily_records if r['clock_in'] != '-']),
                 'total_hours': round(total_hours, 2),
-                'late_count': late_count,
                 'avg_hours': round(total_hours / len(daily_records), 2) if daily_records else 0
             },
             'daily_records': daily_records

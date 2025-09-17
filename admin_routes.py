@@ -187,6 +187,266 @@ def setup_admin_routes(app):
             'attendance_rate': round((today_checkin / total_employees * 100) if total_employees > 0 else 0, 1)
         })
 
+    @app.route('/api/overtime/requests', methods=['GET'])
+    @require_admin
+    def get_overtime_requests():
+        """獲取加班申請列表"""
+        status = request.args.get('status', 'pending')  # pending, approved, rejected, all
+        limit = int(request.args.get('limit', 50))
+        
+        try:
+            if status == 'all':
+                requests = OvertimeManager.get_overtime_requests(status=None, limit=limit)
+            else:
+                requests = OvertimeManager.get_overtime_requests(status=status, limit=limit)
+            
+            return jsonify({
+                'success': True,
+                'data': requests
+            })
+            
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'message': str(e)
+            }), 400
+    
+    @app.route('/api/overtime/approve/<int:request_id>', methods=['POST'])
+    @require_admin
+    def approve_overtime_request(request_id):
+        """批准加班申請"""
+        data = request.get_json()
+        action = data.get('action', 'approve')  # approve or reject
+        
+        try:
+            result = OvertimeManager.approve_overtime_request(
+                request_id, 
+                session.get('employee_id', 'ADMIN001'),
+                action
+            )
+            
+            return jsonify(result)
+            
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'message': str(e)
+            }), 400
+    
+    @app.route('/api/overtime/batch-approve', methods=['POST'])
+    @require_admin
+    def batch_approve_overtime():
+        """批量處理加班申請"""
+        data = request.get_json()
+        request_ids = data.get('request_ids', [])
+        action = data.get('action', 'approve')  # approve or reject
+        
+        if not request_ids:
+            return jsonify({
+                'success': False,
+                'message': '未選擇要處理的申請'
+            }), 400
+        
+        try:
+            results = []
+            success_count = 0
+            
+            for req_id in request_ids:
+                try:
+                    result = OvertimeManager.approve_overtime_request(
+                        req_id,
+                        session.get('employee_id', 'ADMIN001'),
+                        action
+                    )
+                    
+                    if result['success']:
+                        success_count += 1
+                    
+                    results.append({
+                        'request_id': req_id,
+                        'success': result['success'],
+                        'message': result['message']
+                    })
+                    
+                except Exception as e:
+                    results.append({
+                        'request_id': req_id,
+                        'success': False,
+                        'message': str(e)
+                    })
+            
+            action_text = '批准' if action == 'approve' else '拒絕'
+            
+            return jsonify({
+                'success': True,
+                'message': f'批量{action_text}完成：成功 {success_count}/{len(request_ids)} 筆',
+                'results': results
+            })
+            
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'message': f'批量處理失敗：{str(e)}'
+            }), 400
+    
+    @app.route('/api/overtime/stats')
+    @require_admin
+    def get_overtime_stats():
+        """獲取加班統計數據"""
+        try:
+            conn = sqlite3.connect('attendance.db')
+            cursor = conn.cursor()
+            
+            # 待審核統計
+            cursor.execute('SELECT COUNT(*) FROM overtime_requests WHERE status = "pending"')
+            pending_count = cursor.fetchone()[0]
+            
+            # 本月統計
+            now = datetime.now(TW_TZ)
+            month_start = now.replace(day=1).strftime('%Y-%m-%d')
+            
+            cursor.execute('''
+                SELECT status, COUNT(*), SUM(hours) 
+                FROM overtime_requests 
+                WHERE overtime_date >= ?
+                GROUP BY status
+            ''', (month_start,))
+            
+            monthly_stats = {}
+            for row in cursor.fetchall():
+                status, count, hours = row
+                monthly_stats[status] = {
+                    'count': count,
+                    'hours': round(hours or 0, 1)
+                }
+            
+            # 預估本月加班費
+            cursor.execute('''
+                SELECT SUM(ot.hours * COALESCE(es.overtime_rate, 300))
+                FROM overtime_requests ot
+                LEFT JOIN employee_salary es ON ot.employee_id = es.employee_id
+                WHERE ot.overtime_date >= ? AND ot.status = 'approved'
+            ''', (month_start,))
+            
+            estimated_cost = cursor.fetchone()[0] or 0
+            
+            conn.close()
+            
+            return jsonify({
+                'success': True,
+                'data': {
+                    'pending_count': pending_count,
+                    'monthly_stats': monthly_stats,
+                    'estimated_monthly_cost': round(estimated_cost, 0),
+                    'month': f"{now.year}年{now.month:02d}月"
+                }
+            })
+            
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'message': str(e)
+            }), 400
+    
+    @app.route('/api/overtime/export/csv')
+    @require_admin
+    def export_overtime_csv():
+        """導出加班記錄CSV"""
+        status = request.args.get('status', 'all')
+        start_date = request.args.get('start_date')
+        end_date = request.args.get('end_date')
+        
+        try:
+            conn = sqlite3.connect('attendance.db')
+            cursor = conn.cursor()
+            
+            query = '''
+                SELECT ot.id, ot.employee_id, e.name, e.department,
+                       ot.overtime_date, ot.start_time, ot.end_time, 
+                       ot.hours, ot.reason, ot.status, 
+                       ot.created_at, ot.approved_at
+                FROM overtime_requests ot
+                JOIN employees e ON ot.employee_id = e.employee_id
+            '''
+            
+            params = []
+            conditions = []
+            
+            if status != 'all':
+                conditions.append('ot.status = ?')
+                params.append(status)
+            
+            if start_date:
+                conditions.append('ot.overtime_date >= ?')
+                params.append(start_date)
+            
+            if end_date:
+                conditions.append('ot.overtime_date <= ?')
+                params.append(end_date)
+            
+            if conditions:
+                query += ' WHERE ' + ' AND '.join(conditions)
+            
+            query += ' ORDER BY ot.overtime_date DESC, ot.created_at DESC'
+            
+            cursor.execute(query, params)
+            records = cursor.fetchall()
+            conn.close()
+            
+            if not records:
+                return jsonify({'error': '查無符合條件的記錄'}), 400
+            
+            # 建立CSV內容
+            import io, csv
+            output = io.StringIO()
+            writer = csv.writer(output)
+            
+            # CSV標題
+            writer.writerow([
+                '申請編號', '員工編號', '姓名', '部門', '加班日期', 
+                '開始時間', '結束時間', '加班時數', '申請原因', '狀態',
+                '申請時間', '審核時間'
+            ])
+            
+            # 寫入資料
+            for record in records:
+                status_text = {
+                    'pending': '待審核',
+                    'approved': '已批准',
+                    'rejected': '已拒絕'
+                }.get(record[9], record[9])
+                
+                writer.writerow([
+                    record[0],  # id
+                    record[1],  # employee_id
+                    record[2],  # name
+                    record[3] or '未分類',  # department
+                    record[4],  # overtime_date
+                    record[5],  # start_time
+                    record[6],  # end_time
+                    f"{record[7]:.1f}小時",  # hours
+                    record[8],  # reason
+                    status_text,  # status
+                    record[10],  # created_at
+                    record[11] or '未審核'  # approved_at
+                ])
+            
+            filename = f'overtime_report_{datetime.now(TW_TZ).strftime("%Y%m%d")}.csv'
+            csv_content = output.getvalue()
+            output.close()
+            
+            return Response(
+                csv_content,
+                mimetype='text/csv; charset=utf-8-sig',
+                headers={
+                    'Content-Disposition': f'attachment; filename="{filename}"',
+                    'Content-Type': 'text/csv; charset=utf-8-sig'
+                }
+            )
+            
+        except Exception as e:
+            return jsonify({'error': f'導出失敗: {str(e)}'}), 500
+        
     @app.route('/api/salary/employees', methods=['GET'])
     @require_admin
     def get_employees_salary():
@@ -510,6 +770,115 @@ def setup_admin_routes(app):
             ]
         })
     
+    @app.route('/api/reports/export/monthly-csv')
+    @require_admin
+    def export_monthly_csv():
+        """匯出月度CSV報表"""
+        year = request.args.get('year', datetime.now(TW_TZ).year, type=int)
+        month = request.args.get('month', datetime.now(TW_TZ).month, type=int)
+        report_type = request.args.get('type', 'attendance')  # attendance, salary
+        
+        try:
+            if report_type == 'salary':
+                # 匯出薪資報表
+                conn = sqlite3.connect('attendance.db')
+                cursor = conn.cursor()
+                
+                cursor.execute('''
+                    SELECT sr.employee_id, e.name, e.department, sr.work_days, 
+                        sr.total_hours, sr.overtime_hours, sr.base_salary,
+                        sr.hourly_pay, sr.overtime_pay, sr.bonus, 
+                        sr.gross_salary, sr.deductions, sr.net_salary,
+                        sr.calculated_at
+                    FROM salary_records sr
+                    JOIN employees e ON sr.employee_id = e.employee_id
+                    WHERE sr.year = ? AND sr.month = ?
+                    ORDER BY e.department, e.name
+                ''', (year, month))
+                
+                records = cursor.fetchall()
+                conn.close()
+                
+                if not records:
+                    return jsonify({'error': '該月份無薪資記錄'}), 400
+                
+                # 建立CSV內容
+                import io, csv
+                output = io.StringIO()
+                writer = csv.writer(output)
+                
+                # CSV標題
+                writer.writerow([
+                    '員工編號', '姓名', '部門', '出勤天數', '總工時', '加班時數',
+                    '基本薪資', '時薪計算', '加班費', '獎金', 
+                    '應發薪資', '扣款', '實發薪資', '計算時間'
+                ])
+                
+                # 寫入資料
+                for record in records:
+                    writer.writerow([
+                        record[0],  # employee_id
+                        record[1],  # name
+                        record[2] or '未分類',  # department
+                        record[3],  # work_days
+                        f"{record[4]:.1f}",  # total_hours
+                        f"{record[5]:.1f}",  # overtime_hours
+                        f"${record[6]:,.0f}",  # base_salary
+                        f"${record[7]:,.0f}",  # hourly_pay
+                        f"${record[8]:,.0f}",  # overtime_pay
+                        f"${record[9]:,.0f}",  # bonus
+                        f"${record[10]:,.0f}",  # gross_salary
+                        f"${record[11]:,.0f}",  # deductions
+                        f"${record[12]:,.0f}",  # net_salary
+                        record[13]  # calculated_at
+                    ])
+                
+                filename = f'salary_report_{year}_{month:02d}.csv'
+            
+            else:
+                # 匯出出勤報表
+                data = AttendanceReport.get_monthly_summary(year, month)
+                
+                if not data:
+                    return jsonify({'error': '該月份無出勤記錄'}), 400
+                
+                import io, csv
+                output = io.StringIO()
+                writer = csv.writer(output)
+                
+                # CSV標題 - 移除打卡完整度相關欄位
+                writer.writerow([
+                    '員工編號', '姓名', '部門', '出勤天數', '總工時', '平均工時'
+                ])
+                
+                # 寫入資料 - 移除完整度計算
+                for record in data:
+                    writer.writerow([
+                        record['employee_id'],
+                        record['name'],
+                        record['department'] or '未分類',
+                        record['work_days'],
+                        f"{record['total_hours']:.1f}",
+                        f"{record['avg_hours']:.1f}"
+                    ])
+                
+                filename = f'attendance_report_{year}_{month:02d}.csv'
+            
+            csv_content = output.getvalue()
+            output.close()
+            
+            return Response(
+                csv_content,
+                mimetype='text/csv; charset=utf-8-sig',  # 支援中文
+                headers={
+                    'Content-Disposition': f'attachment; filename="{filename}"',
+                    'Content-Type': 'text/csv; charset=utf-8-sig'
+                }
+            )
+            
+        except Exception as e:
+            return jsonify({'error': f'匯出失敗: {str(e)}'}), 500
+        
     @app.route('/api/salary/batch-calculate', methods=['POST'])
     @require_admin
     def batch_calculate_salary():
@@ -656,15 +1025,6 @@ def setup_admin_routes(app):
         """部門出勤摘要"""
         date = request.args.get('date', datetime.now(TW_TZ).strftime('%Y-%m-%d'))
         data = AttendanceReport.get_department_summary(date)
-        return jsonify(data)
-    
-    @app.route('/api/reports/late')
-    @require_admin
-    def get_late_report():
-        """遲到統計報表"""
-        year = request.args.get('year', datetime.now(TW_TZ).year, type=int)
-        month = request.args.get('month', datetime.now(TW_TZ).month, type=int)
-        data = AttendanceReport.get_late_statistics(year, month)
         return jsonify(data)
     
     @app.route('/api/reports/network-violations')

@@ -1,4 +1,4 @@
-# salary_calculator.py - 薪資計算模組
+# salary_calculator.py - 薪資計算模組（移除遲到扣款）
 import sqlite3
 from datetime import datetime, timedelta
 import pytz
@@ -12,7 +12,7 @@ TW_TZ = pytz.timezone('Asia/Taipei')
 logger = logging.getLogger(__name__)
 
 class SalaryCalculator:
-    """薪資計算類"""
+    """薪資計算類（無遲到扣款）"""
     
     @staticmethod
     def get_employee_salary_info(employee_id: str) -> Dict[str, float]:
@@ -60,7 +60,7 @@ class SalaryCalculator:
     
     @staticmethod
     def calculate_monthly_salary(employee_id: str, year: Optional[int] = None, month: Optional[int] = None) -> Dict[str, Any]:
-        """計算月薪"""
+        """計算月薪（無遲到扣款）"""
         try:
             now = datetime.now(TW_TZ)
             if not year:
@@ -90,15 +90,12 @@ class SalaryCalculator:
             # 計算獎金
             bonus = salary_info['bonus']
             
-            # 計算扣款
+            # 計算扣款（移除遲到扣款）
             deductions = salary_info['deductions']
-            
-            # 遲到扣款 (每次扣50元)
-            late_penalty = work_stats['late_count'] * 50
             
             # 總薪資計算
             gross_salary = base_salary + hourly_pay + overtime_pay + bonus
-            total_deductions = deductions + late_penalty
+            total_deductions = deductions  # 不包含遲到扣款
             net_salary = max(0, gross_salary - total_deductions)  # 確保實發薪資不為負數
             
             return {
@@ -110,7 +107,6 @@ class SalaryCalculator:
                 'bonus': round(bonus, 2),
                 'gross_salary': round(gross_salary, 2),
                 'deductions': round(deductions, 2),
-                'late_penalty': round(late_penalty, 2),
                 'total_deductions': round(total_deductions, 2),
                 'net_salary': round(net_salary, 2),
                 'work_stats': work_stats
@@ -122,7 +118,7 @@ class SalaryCalculator:
     
     @staticmethod
     def get_monthly_work_stats(employee_id: str, year: int, month: int) -> Dict[str, float]:
-        """獲取月度工作統計"""
+        """獲取月度工作統計（移除遲到統計）"""
         conn = None
         try:
             conn = sqlite3.connect('attendance.db')
@@ -171,23 +167,10 @@ class SalaryCalculator:
                 if daily_hours > 8:
                     overtime_hours += (daily_hours - 8)
             
-            # 獲取遲到次數
-            cursor.execute('''
-                SELECT COUNT(*) FROM attendance_records 
-                WHERE employee_id = ? AND action_type = 'clock_in' 
-                AND status = 'late'
-                AND strftime('%Y', taiwan_time) = ? 
-                AND strftime('%m', taiwan_time) = ?
-            ''', (employee_id, str(year), f"{month:02d}"))
-            
-            late_count_result = cursor.fetchone()
-            late_count = late_count_result[0] if late_count_result else 0
-            
             return {
                 'work_days': len(work_dates),
                 'total_hours': round(total_hours, 2),
                 'overtime_hours': round(overtime_hours, 2),
-                'late_count': late_count,
                 'avg_hours': round(total_hours / len(work_dates), 2) if work_dates else 0
             }
             
@@ -239,275 +222,8 @@ class SalaryCalculator:
             return 0.0
     
     @staticmethod
-    def create_simple_salary_card(salary_data: Dict[str, Any], employee_name: str):
-        """創建簡化版薪資資訊卡片"""
-        try:
-            from linebot.models import FlexSendMessage
-        except ImportError:
-            logger.error("無法導入 LINE Bot SDK")
-            raise ImportError("請安裝 line-bot-sdk: pip install line-bot-sdk")
-        
-        if not salary_data or not employee_name:
-            raise ValueError("薪資資料和員工姓名不能為空")
-        
-        year = salary_data['year']
-        month = salary_data['month']
-        work_stats = salary_data['work_stats']
-        
-        # 簡化版 Flex Message
-        flex_content = {
-            "type": "bubble",
-            "styles": {
-                "header": {
-                    "backgroundColor": "#667eea"
-                }
-            },
-            "header": {
-                "type": "box",
-                "layout": "vertical",
-                "contents": [
-                    {
-                        "type": "text",
-                        "text": f"💰 {employee_name}",
-                        "weight": "bold",
-                        "color": "#ffffff",
-                        "size": "lg"
-                    },
-                    {
-                        "type": "text",
-                        "text": f"{year}年{month:02d}月薪資",
-                        "color": "#ffffff",
-                        "size": "sm"
-                    }
-                ],
-                "paddingAll": "20px"
-            },
-            "body": {
-                "type": "box",
-                "layout": "vertical",
-                "contents": [
-                    # 實發薪資 - 大字顯示
-                    {
-                        "type": "box",
-                        "layout": "vertical",
-                        "contents": [
-                            {
-                                "type": "text",
-                                "text": "實發薪資",
-                                "size": "sm",
-                                "color": "#666666",
-                                "align": "center"
-                            },
-                            {
-                                "type": "text",
-                                "text": f"${salary_data['net_salary']:,.0f}",
-                                "size": "xxl",
-                                "weight": "bold",
-                                "color": "#4CAF50",
-                                "align": "center"
-                            }
-                        ],
-                        "margin": "lg"
-                    },
-                    
-                    # 分隔線
-                    {
-                        "type": "separator",
-                        "margin": "xl"
-                    },
-                    
-                    # 工時資訊
-                    {
-                        "type": "box",
-                        "layout": "vertical",
-                        "contents": [
-                            {
-                                "type": "text",
-                                "text": "📊 本月工時",
-                                "weight": "bold",
-                                "size": "md",
-                                "margin": "xl"
-                            },
-                            {
-                                "type": "box",
-                                "layout": "horizontal",
-                                "contents": [
-                                    {
-                                        "type": "text",
-                                        "text": "出勤天數",
-                                        "size": "sm",
-                                        "color": "#666666",
-                                        "flex": 1
-                                    },
-                                    {
-                                        "type": "text",
-                                        "text": f"{work_stats['work_days']} 天",
-                                        "size": "sm",
-                                        "align": "end"
-                                    }
-                                ],
-                                "margin": "md"
-                            },
-                            {
-                                "type": "box",
-                                "layout": "horizontal",
-                                "contents": [
-                                    {
-                                        "type": "text",
-                                        "text": "總工時",
-                                        "size": "sm",
-                                        "color": "#666666",
-                                        "flex": 1
-                                    },
-                                    {
-                                        "type": "text",
-                                        "text": f"{work_stats['total_hours']:.1f} 小時",
-                                        "size": "sm",
-                                        "align": "end"
-                                    }
-                                ]
-                            },
-                            {
-                                "type": "box",
-                                "layout": "horizontal",
-                                "contents": [
-                                    {
-                                        "type": "text",
-                                        "text": "加班時數",
-                                        "size": "sm",
-                                        "color": "#666666",
-                                        "flex": 1
-                                    },
-                                    {
-                                        "type": "text",
-                                        "text": f"{work_stats['overtime_hours']:.1f} 小時",
-                                        "size": "sm",
-                                        "color": "#FF9800",
-                                        "align": "end"
-                                    }
-                                ]
-                            }
-                        ]
-                    },
-                    
-                    # 分隔線
-                    {
-                        "type": "separator",
-                        "margin": "xl"
-                    },
-                    
-                    # 薪資組成
-                    {
-                        "type": "box",
-                        "layout": "vertical",
-                        "contents": [
-                            {
-                                "type": "text",
-                                "text": "💵 薪資組成",
-                                "weight": "bold",
-                                "size": "md",
-                                "margin": "xl"
-                            },
-                            {
-                                "type": "box",
-                                "layout": "horizontal",
-                                "contents": [
-                                    {
-                                        "type": "text",
-                                        "text": "基本薪資",
-                                        "size": "sm",
-                                        "color": "#666666",
-                                        "flex": 1
-                                    },
-                                    {
-                                        "type": "text",
-                                        "text": f"${salary_data['base_salary']:,.0f}",
-                                        "size": "sm",
-                                        "align": "end"
-                                    }
-                                ],
-                                "margin": "md"
-                            },
-                            {
-                                "type": "box",
-                                "layout": "horizontal",
-                                "contents": [
-                                    {
-                                        "type": "text",
-                                        "text": "工時薪資",
-                                        "size": "sm",
-                                        "color": "#666666",
-                                        "flex": 1
-                                    },
-                                    {
-                                        "type": "text",
-                                        "text": f"${salary_data['hourly_pay']:,.0f}",
-                                        "size": "sm",
-                                        "align": "end"
-                                    }
-                                ]
-                            },
-                            {
-                                "type": "box",
-                                "layout": "horizontal",
-                                "contents": [
-                                    {
-                                        "type": "text",
-                                        "text": "加班費",
-                                        "size": "sm",
-                                        "color": "#666666",
-                                        "flex": 1
-                                    },
-                                    {
-                                        "type": "text",
-                                        "text": f"${salary_data['overtime_pay']:,.0f}",
-                                        "size": "sm",
-                                        "color": "#FF9800",
-                                        "align": "end"
-                                    }
-                                ]
-                            }
-                        ]
-                    }
-                ],
-                "spacing": "sm",
-                "paddingAll": "20px"
-            },
-            "footer": {
-                "type": "box",
-                "layout": "vertical",
-                "contents": [
-                    {
-                        "type": "button",
-                        "style": "primary",
-                        "action": {
-                            "type": "message",
-                            "label": "查看詳細",
-                            "text": "薪資明細"
-                        },
-                        "color": "#667eea"
-                    },
-                    {
-                        "type": "text",
-                        "text": f"更新時間: {datetime.now(TW_TZ).strftime('%Y-%m-%d %H:%M')}",
-                        "size": "xs",
-                        "color": "#999999",
-                        "align": "center",
-                        "margin": "sm"
-                    }
-                ],
-                "paddingAll": "15px"
-            }
-        }
-        
-        return FlexSendMessage(
-            alt_text=f"{employee_name}的{year}年{month:02d}月薪資卡片",
-            contents=flex_content
-        )
-
-    @staticmethod
     def create_salary_flex_message(salary_data: Dict[str, Any], employee_name: str):
-        """創建薪資 Flex Message"""
+        """創建薪資 Flex Message（移除遲到相關內容）"""
         try:
             from linebot.models import FlexSendMessage
         except ImportError:
@@ -628,26 +344,6 @@ class SalaryCalculator:
                                         "text": f"{work_stats['overtime_hours']:.1f} 小時",
                                         "size": "sm",
                                         "color": "#FF9800",
-                                        "align": "end"
-                                    }
-                                ]
-                            },
-                            {
-                                "type": "box",
-                                "layout": "horizontal",
-                                "contents": [
-                                    {
-                                        "type": "text",
-                                        "text": "遲到次數",
-                                        "size": "sm",
-                                        "color": "#666666",
-                                        "flex": 1
-                                    },
-                                    {
-                                        "type": "text",
-                                        "text": f"{work_stats['late_count']} 次",
-                                        "size": "sm",
-                                        "color": "#f44336" if work_stats['late_count'] > 0 else "#4CAF50",
                                         "align": "end"
                                     }
                                 ]
@@ -782,67 +478,6 @@ class SalaryCalculator:
                                 "margin": "sm"
                             }
                         ]
-                    },
-                    
-                    # 扣款區塊
-                    {
-                        "type": "box",
-                        "layout": "vertical",
-                        "contents": [
-                            {
-                                "type": "text",
-                                "text": "📉 扣款明細",
-                                "weight": "bold",
-                                "size": "md",
-                                "color": "#f44336",
-                                "margin": "xl"
-                            },
-                            {
-                                "type": "separator",
-                                "margin": "sm"
-                            },
-                            {
-                                "type": "box",
-                                "layout": "horizontal",
-                                "contents": [
-                                    {
-                                        "type": "text",
-                                        "text": "其他扣款",
-                                        "size": "sm",
-                                        "color": "#666666",
-                                        "flex": 1
-                                    },
-                                    {
-                                        "type": "text",
-                                        "text": f"-${salary_data['deductions']:,.0f}",
-                                        "size": "sm",
-                                        "color": "#f44336",
-                                        "align": "end"
-                                    }
-                                ],
-                                "margin": "sm"
-                            },
-                            {
-                                "type": "box",
-                                "layout": "horizontal",
-                                "contents": [
-                                    {
-                                        "type": "text",
-                                        "text": "遲到扣款",
-                                        "size": "sm",
-                                        "color": "#666666",
-                                        "flex": 1
-                                    },
-                                    {
-                                        "type": "text",
-                                        "text": f"-${salary_data['late_penalty']:,.0f}",
-                                        "size": "sm",
-                                        "color": "#f44336",
-                                        "align": "end"
-                                    }
-                                ]
-                            }
-                        ]
                     }
                 ],
                 "spacing": "sm",
@@ -892,31 +527,52 @@ class SalaryCalculator:
             }
         }
         
+        # 只有在有扣款時才顯示扣款區塊
+        if salary_data['deductions'] > 0:
+            deductions_block = {
+                "type": "box",
+                "layout": "vertical",
+                "contents": [
+                    {
+                        "type": "text",
+                        "text": "📉 扣款明細",
+                        "weight": "bold",
+                        "size": "md",
+                        "color": "#f44336",
+                        "margin": "xl"
+                    },
+                    {
+                        "type": "separator",
+                        "margin": "sm"
+                    },
+                    {
+                        "type": "box",
+                        "layout": "horizontal",
+                        "contents": [
+                            {
+                                "type": "text",
+                                "text": "其他扣款",
+                                "size": "sm",
+                                "color": "#666666",
+                                "flex": 1
+                            },
+                            {
+                                "type": "text",
+                                "text": f"-${salary_data['deductions']:,.0f}",
+                                "size": "sm",
+                                "color": "#f44336",
+                                "align": "end"
+                            }
+                        ],
+                        "margin": "sm"
+                    }
+                ]
+            }
+            
+            # 在薪資明細後插入扣款區塊
+            flex_content["body"]["contents"].insert(2, deductions_block)
+        
         return FlexSendMessage(
             alt_text=f"{employee_name}的{year}年{month:02d}月薪資計算",
             contents=flex_content
         )
-
-
-# 使用範例和測試函數
-# if __name__ == "__main__":
-#     # 測試用例
-#     def test_salary_calculator():
-#         """測試薪資計算器功能"""
-#         try:
-#             # 測試獲取員工薪資資訊
-#             employee_id = "test_001"
-#             salary_info = SalaryCalculator.get_employee_salary_info(employee_id)
-#             print(f"員工薪資資訊: {salary_info}")
-            
-#             # 測試計算月薪
-#             monthly_salary = SalaryCalculator.calculate_monthly_salary(employee_id, 2024, 9)
-#             print(f"月薪計算結果: {monthly_salary}")
-            
-#             # 測試工作統計
-#             work_stats = SalaryCalculator.get_monthly_work_stats(employee_id, 2024, 9)
-#             print(f"工作統計: {work_stats}")
-            
-#         except Exception as e:
-#             print(f"測試時發生錯誤: {e}")
-    

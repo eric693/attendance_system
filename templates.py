@@ -1,4 +1,4 @@
-# templates.py - HTML模板模組 (修正版)
+# templates.py - HTML模板模組 (移除遲到功能版)
 
 # 首頁模板
 INDEX_TEMPLATE = '''
@@ -490,6 +490,36 @@ ADMIN_TEMPLATE = '''
             }
         }
 
+        // 新增快速匯出月度函數
+        async function quickExportMonth() {
+            const year = document.getElementById('reportYear').value;
+            const month = document.getElementById('reportMonth').value;
+            
+            if (!confirm(`確定要匯出 ${year}年${month}月 的完整出勤和薪資報表嗎？`)) {
+                return;
+            }
+            
+            document.getElementById('reportContent').innerHTML = '<div style="text-align: center; padding: 40px;"><p>正在準備匯出檔案...</p></div>';
+            
+            // 同時匯出出勤和薪資兩個檔案
+            try {
+                await downloadReport('monthly', `${year}-${month}`);
+                await downloadReport('salary', `${year}-${month}`);
+                
+                document.getElementById('reportContent').innerHTML = `
+                    <div class="alert alert-success">
+                        ✅ ${year}年${month}月 出勤和薪資報表匯出完成！<br>
+                        <small>已下載兩個CSV檔案</small>
+                    </div>
+                `;
+            } catch (error) {
+                document.getElementById('reportContent').innerHTML = `
+                    <div class="alert alert-error">
+                        ❌ 快速匯出失敗：${error.message}
+                    </div>
+                `;
+            }
+        }
         // 顯示員工列表
         async function showEmployees() {
             try {
@@ -551,9 +581,9 @@ ADMIN_TEMPLATE = '''
                         <button class="btn" onclick="loadDailyReport()">📅 每日報表</button>
                         <button class="btn" onclick="loadMonthlyReport()">📈 月度報表</button>
                         <button class="btn" onclick="loadDepartmentReport()">🏢 部門報表</button>
-                        <button class="btn" onclick="loadLateReport()">⏰ 遲到統計</button>
                         <button class="btn" onclick="loadNetworkViolations()">🚫 網路違規</button>
-                        <button class="btn" onclick="exportReport()">📤 導出報表</button>
+                        <button class="btn" onclick="exportReport()">📤 匯出報表</button>
+                        <button class="btn" onclick="quickExportMonth()" style="background: linear-gradient(135deg, #4CAF50, #45a049);">⚡ 快速匯出月度</button>
                     </div>
                     
                     <div style="display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap;">
@@ -613,7 +643,6 @@ ADMIN_TEMPLATE = '''
                                 <th style="padding: 12px; border: 1px solid #ddd;">上班時間</th>
                                 <th style="padding: 12px; border: 1px solid #ddd;">下班時間</th>
                                 <th style="padding: 12px; border: 1px solid #ddd;">工作時數</th>
-                                <th style="padding: 12px; border: 1px solid #ddd;">狀態</th>
                                 <th style="padding: 12px; border: 1px solid #ddd;">IP地址</th>
                             </tr>
                         </thead>
@@ -621,12 +650,9 @@ ADMIN_TEMPLATE = '''
                 `;
                 
                 if (data.length === 0) {
-                    tableHTML += '<tr><td colspan="8" style="padding: 20px; text-align: center;">當日無出勤記錄</td></tr>';
+                    tableHTML += '<tr><td colspan="7" style="padding: 20px; text-align: center;">當日無出勤記錄</td></tr>';
                 } else {
                     data.forEach(record => {
-                        const statusColor = record.status.includes('遲到') ? 'red' : 
-                                          record.status === '未打卡' ? 'orange' : 'green';
-                        
                         tableHTML += `
                             <tr>
                                 <td style="padding: 12px; border: 1px solid #ddd;">${record.employee_id}</td>
@@ -635,7 +661,6 @@ ADMIN_TEMPLATE = '''
                                 <td style="padding: 12px; border: 1px solid #ddd;">${record.clock_in ? record.clock_in.split(' ')[1] : '-'}</td>
                                 <td style="padding: 12px; border: 1px solid #ddd;">${record.clock_out ? record.clock_out.split(' ')[1] : '-'}</td>
                                 <td style="padding: 12px; border: 1px solid #ddd;">${record.working_hours}h</td>
-                                <td style="padding: 12px; border: 1px solid #ddd; color: ${statusColor};">${record.status}</td>
                                 <td style="padding: 12px; border: 1px solid #ddd;">${record.ip_address}</td>
                             </tr>
                         `;
@@ -669,15 +694,13 @@ ADMIN_TEMPLATE = '''
                                 <th style="padding: 12px; border: 1px solid #ddd;">出勤天數</th>
                                 <th style="padding: 12px; border: 1px solid #ddd;">總工時</th>
                                 <th style="padding: 12px; border: 1px solid #ddd;">平均工時</th>
-                                <th style="padding: 12px; border: 1px solid #ddd;">遲到次數</th>
-                                <th style="padding: 12px; border: 1px solid #ddd;">打卡完整度</th>
                             </tr>
                         </thead>
                         <tbody>
                 `;
                 
                 if (data.length === 0) {
-                    tableHTML += '<tr><td colspan="8" style="padding: 20px; text-align: center;">當月無出勤記錄</td></tr>';
+                    tableHTML += '<tr><td colspan="7" style="padding: 20px; text-align: center;">當月無出勤記錄</td></tr>';
                 } else {
                     data.forEach(record => {
                         const completeness = record.checkin_count === record.checkout_count ? '完整' : '不完整';
@@ -691,8 +714,6 @@ ADMIN_TEMPLATE = '''
                                 <td style="padding: 12px; border: 1px solid #ddd;">${record.work_days}天</td>
                                 <td style="padding: 12px; border: 1px solid #ddd;">${record.total_hours}h</td>
                                 <td style="padding: 12px; border: 1px solid #ddd;">${record.avg_hours}h</td>
-                                <td style="padding: 12px; border: 1px solid #ddd; color: ${record.late_count > 0 ? 'red' : 'green'};">${record.late_count}次</td>
-                                <td style="padding: 12px; border: 1px solid #ddd; color: ${completenessColor};">${completeness}</td>
                             </tr>
                         `;
                     });
@@ -722,7 +743,6 @@ ADMIN_TEMPLATE = '''
                                 <th style="padding: 12px; border: 1px solid #ddd;">總員工數</th>
                                 <th style="padding: 12px; border: 1px solid #ddd;">出勤人數</th>
                                 <th style="padding: 12px; border: 1px solid #ddd;">缺勤人數</th>
-                                <th style="padding: 12px; border: 1px solid #ddd;">遲到人數</th>
                                 <th style="padding: 12px; border: 1px solid #ddd;">出勤率</th>
                             </tr>
                         </thead>
@@ -730,7 +750,7 @@ ADMIN_TEMPLATE = '''
                 `;
                 
                 if (data.length === 0) {
-                    tableHTML += '<tr><td colspan="6" style="padding: 20px; text-align: center;">暫無部門資料</td></tr>';
+                    tableHTML += '<tr><td colspan="5" style="padding: 20px; text-align: center;">暫無部門資料</td></tr>';
                 } else {
                     data.forEach(dept => {
                         const rateColor = dept.attendance_rate >= 90 ? 'green' : 
@@ -742,7 +762,6 @@ ADMIN_TEMPLATE = '''
                                 <td style="padding: 12px; border: 1px solid #ddd;">${dept.total_employees}</td>
                                 <td style="padding: 12px; border: 1px solid #ddd;">${dept.present_count}</td>
                                 <td style="padding: 12px; border: 1px solid #ddd;">${dept.absent_count}</td>
-                                <td style="padding: 12px; border: 1px solid #ddd;">${dept.late_count}</td>
                                 <td style="padding: 12px; border: 1px solid #ddd; color: ${rateColor};">${dept.attendance_rate}%</td>
                             </tr>
                         `;
@@ -753,51 +772,6 @@ ADMIN_TEMPLATE = '''
                 document.getElementById('reportContent').innerHTML = tableHTML;
             } catch (error) {
                 document.getElementById('reportContent').innerHTML = '<div class="alert alert-error">載入部門報表失敗：' + error.message + '</div>';
-            }
-        }
-
-        // 載入遲到統計
-        async function loadLateReport() {
-            const year = document.getElementById('reportYear').value;
-            const month = document.getElementById('reportMonth').value;
-            
-            try {
-                const response = await fetch(`/api/reports/late?year=${year}&month=${month}`);
-                const data = await response.json();
-                
-                let tableHTML = `
-                    <h4>⏰ 遲到統計報表 - ${year}年${month}月</h4>
-                    <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
-                        <thead>
-                            <tr style="background: #f8f9fa;">
-                                <th style="padding: 12px; border: 1px solid #ddd;">姓名</th>
-                                <th style="padding: 12px; border: 1px solid #ddd;">部門</th>
-                                <th style="padding: 12px; border: 1px solid #ddd;">遲到次數</th>
-                                <th style="padding: 12px; border: 1px solid #ddd;">遲到日期</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                `;
-                
-                if (data.length === 0) {
-                    tableHTML += '<tr><td colspan="4" style="padding: 20px; text-align: center; color: green;">🎉 本月無人遲到！</td></tr>';
-                } else {
-                    data.forEach(record => {
-                        tableHTML += `
-                            <tr>
-                                <td style="padding: 12px; border: 1px solid #ddd;">${record.name}</td>
-                                <td style="padding: 12px; border: 1px solid #ddd;">${record.department}</td>
-                                <td style="padding: 12px; border: 1px solid #ddd; color: red;">${record.late_count}次</td>
-                                <td style="padding: 12px; border: 1px solid #ddd;">${record.late_dates.join(', ')}</td>
-                            </tr>
-                        `;
-                    });
-                }
-                
-                tableHTML += '</tbody></table>';
-                document.getElementById('reportContent').innerHTML = tableHTML;
-            } catch (error) {
-                document.getElementById('reportContent').innerHTML = '<div class="alert alert-error">載入遲到統計失敗：' + error.message + '</div>';
             }
         }
 
@@ -849,29 +823,83 @@ ADMIN_TEMPLATE = '''
 
         // 導出報表
         async function exportReport() {
+            const year = document.getElementById('reportYear').value;
+            const month = document.getElementById('reportMonth').value;
             const date = document.getElementById('reportDate').value;
-            const reportType = 'daily'; // 可以根據需要修改
             
+            // 建立匯出選項對話框
+            const exportOptions = `
+                <div style="text-align: center; padding: 20px;">
+                    <h4>📤 選擇匯出類型</h4>
+                    <div style="display: grid; gap: 15px; margin: 20px 0;">
+                        <button class="btn" onclick="downloadReport('daily', '${date}')">📅 當日出勤報表</button>
+                        <button class="btn" onclick="downloadReport('monthly', '${year}-${month}')">📈 月度出勤報表</button>
+                        <button class="btn" onclick="downloadReport('salary', '${year}-${month}')">💰 月度薪資報表</button>
+                        <button class="btn" onclick="document.getElementById('reportContent').innerHTML = '<p style=\\"text-align: center; color: #666; padding: 40px;\\">請選擇上方的報表類型</p>'" style="background: #666;">取消</button>
+                    </div>
+                </div>
+            `;
+            
+            document.getElementById('reportContent').innerHTML = exportOptions;
+        }
+
+        // 新增下載報表函數
+        async function downloadReport(type, period) {
             try {
-                const response = await fetch(`/api/reports/export/csv?type=${reportType}&date=${date}`);
+                let url = '';
+                let filename = '';
+                
+                if (type === 'daily') {
+                    url = `/api/reports/export/csv?type=daily&date=${period}`;
+                    filename = `daily_report_${period}.csv`;
+                } else if (type === 'monthly') {
+                    const [year, month] = period.split('-');
+                    url = `/api/reports/export/monthly-csv?type=attendance&year=${year}&month=${month}`;
+                    filename = `monthly_attendance_${year}_${month}.csv`;
+                } else if (type === 'salary') {
+                    const [year, month] = period.split('-');
+                    url = `/api/reports/export/monthly-csv?type=salary&year=${year}&month=${month}`;
+                    filename = `monthly_salary_${year}_${month}.csv`;
+                }
+                
+                const response = await fetch(url);
                 
                 if (response.ok) {
                     const blob = await response.blob();
-                    const url = window.URL.createObjectURL(blob);
+                    const downloadUrl = window.URL.createObjectURL(blob);
                     const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `attendance_report_${date}.csv`;
+                    a.href = downloadUrl;
+                    a.download = filename;
                     document.body.appendChild(a);
                     a.click();
-                    window.URL.revokeObjectURL(url);
+                    window.URL.revokeObjectURL(downloadUrl);
                     document.body.removeChild(a);
                     
-                    alert('✅ 報表導出成功！');
+                    // 顯示成功訊息
+                    document.getElementById('reportContent').innerHTML = `
+                        <div class="alert alert-success">
+                            ✅ ${filename} 匯出成功！<br>
+                            <small>檔案已開始下載</small>
+                        </div>
+                    `;
+                    
+                    setTimeout(() => {
+                        document.getElementById('reportContent').innerHTML = '<p style="text-align: center; color: #666; padding: 40px;">請選擇上方的報表類型</p>';
+                    }, 3000);
                 } else {
-                    alert('❌ 導出失敗');
+                    const error = await response.json();
+                    throw new Error(error.error || '匯出失敗');
                 }
             } catch (error) {
-                alert('❌ 導出錯誤：' + error.message);
+                document.getElementById('reportContent').innerHTML = `
+                    <div class="alert alert-error">
+                        ❌ 匯出失敗：${error.message}
+                    </div>
+                `;
+                
+                setTimeout(() => {
+                    document.getElementById('reportContent').innerHTML = '<p style="text-align: center; color: #666; padding: 40px;">請選擇上方的報表類型</p>';
+                }, 3000);
             }
         }
 
@@ -947,9 +975,9 @@ ADMIN_TEMPLATE = '''
                                 <td style="padding: 12px; border: 1px solid #ddd;">${emp.employee_id}</td>
                                 <td style="padding: 12px; border: 1px solid #ddd;">${emp.name}</td>
                                 <td style="padding: 12px; border: 1px solid #ddd;">${emp.department || '-'}</td>
-                                <td style="padding: 12px; border: 1px solid #ddd;">$${baseSalary.toLocaleString()}</td>
-                                <td style="padding: 12px; border: 1px solid #ddd;">$${hourlyRate}</td>
-                                <td style="padding: 12px; border: 1px solid #ddd;">$${overtimeRate}</td>
+                                <td style="padding: 12px; border: 1px solid #ddd;">${baseSalary.toLocaleString()}</td>
+                                <td style="padding: 12px; border: 1px solid #ddd;">${hourlyRate}</td>
+                                <td style="padding: 12px; border: 1px solid #ddd;">${overtimeRate}</td>
                                 <td style="padding: 12px; border: 1px solid #ddd;">${salaryType}</td>
                                 <td style="padding: 12px; border: 1px solid #ddd;">
                                     <button class="btn" style="padding: 5px 10px; font-size: 12px;" 
@@ -1123,32 +1151,30 @@ ADMIN_TEMPLATE = '''
                                 <p>出勤天數：${salaryData.work_stats.work_days} 天</p>
                                 <p>總工時：${salaryData.work_stats.total_hours} 小時</p>
                                 <p>加班時數：${salaryData.work_stats.overtime_hours} 小時</p>
-                                <p>遲到次數：${salaryData.work_stats.late_count} 次</p>
                             </div>
                             
                             <div class="card">
                                 <h5>💵 薪資明細</h5>
-                                <p>基本薪資：$${salaryData.base_salary.toLocaleString()}</p>
-                                <p>時薪計算：$${salaryData.hourly_pay.toLocaleString()}</p>
-                                <p>加班費：$${salaryData.overtime_pay.toLocaleString()}</p>
-                                <p>獎金：$${salaryData.bonus.toLocaleString()}</p>
+                                <p>基本薪資：${salaryData.base_salary.toLocaleString()}</p>
+                                <p>時薪計算：${salaryData.hourly_pay.toLocaleString()}</p>
+                                <p>加班費：${salaryData.overtime_pay.toLocaleString()}</p>
+                                <p>獎金：${salaryData.bonus.toLocaleString()}</p>
                                 <p style="border-top: 1px solid #ddd; padding-top: 10px; margin-top: 10px;">
-                                    <strong>應發薪資：$${salaryData.gross_salary.toLocaleString()}</strong>
+                                    <strong>應發薪資：${salaryData.gross_salary.toLocaleString()}</strong>
                                 </p>
                             </div>
                             
                             <div class="card">
                                 <h5>📉 扣款明細</h5>
-                                <p>其他扣款：$${salaryData.deductions.toLocaleString()}</p>
-                                <p>遲到扣款：$${salaryData.late_penalty.toLocaleString()}</p>
+                                <p>其他扣款：${salaryData.deductions.toLocaleString()}</p>
                                 <p style="border-top: 1px solid #ddd; padding-top: 10px; margin-top: 10px;">
-                                    <strong>總扣款：$${salaryData.total_deductions.toLocaleString()}</strong>
+                                    <strong>總扣款：${salaryData.total_deductions.toLocaleString()}</strong>
                                 </p>
                             </div>
                             
                             <div class="card" style="background: #4CAF50; color: white; text-align: center;">
                                 <h5>💰 實發薪資</h5>
-                                <h2 style="margin: 20px 0; font-size: 2.5em;">$${salaryData.net_salary.toLocaleString()}</h2>
+                                <h2 style="margin: 20px 0; font-size: 2.5em;">${salaryData.net_salary.toLocaleString()}</h2>
                                 <p>計算時間：${new Date().toLocaleString()}</p>
                             </div>
                         </div>
@@ -1205,8 +1231,8 @@ ADMIN_TEMPLATE = '''
                                 <td style="padding: 12px; border: 1px solid #ddd;">${record.work_days}天</td>
                                 <td style="padding: 12px; border: 1px solid #ddd;">${record.total_hours}h</td>
                                 <td style="padding: 12px; border: 1px solid #ddd;">${record.overtime_hours}h</td>
-                                <td style="padding: 12px; border: 1px solid #ddd;">$${record.gross_salary.toLocaleString()}</td>
-                                <td style="padding: 12px; border: 1px solid #ddd; font-weight: bold; color: #4CAF50;">$${record.net_salary.toLocaleString()}</td>
+                                <td style="padding: 12px; border: 1px solid #ddd;">${record.gross_salary.toLocaleString()}</td>
+                                <td style="padding: 12px; border: 1px solid #ddd; font-weight: bold; color: #4CAF50;">${record.net_salary.toLocaleString()}</td>
                                 <td style="padding: 12px; border: 1px solid #ddd;">${new Date(record.calculated_at).toLocaleString()}</td>
                             </tr>
                         `;
@@ -1239,15 +1265,15 @@ ADMIN_TEMPLATE = '''
                             <div>已計算員工數</div>
                         </div>
                         <div class="card stat-card" style="background: linear-gradient(135deg, #2196F3, #1976D2);">
-                            <div class="stat-number">$${Math.round(data.summary.total_net / 10000)}萬</div>
+                            <div class="stat-number">${Math.round(data.summary.total_net / 10000)}萬</div>
                             <div>總實發薪資</div>
                         </div>
                         <div class="card stat-card" style="background: linear-gradient(135deg, #FF9800, #F57C00);">
-                            <div class="stat-number">$${data.summary.avg_salary.toLocaleString()}</div>
+                            <div class="stat-number">${data.summary.avg_salary.toLocaleString()}</div>
                             <div>平均薪資</div>
                         </div>
                         <div class="card stat-card" style="background: linear-gradient(135deg, #9C27B0, #7B1FA2);">
-                            <div class="stat-number">$${data.summary.total_overtime.toLocaleString()}</div>
+                            <div class="stat-number">${data.summary.total_overtime.toLocaleString()}</div>
                             <div>總加班費</div>
                         </div>
                     </div>
@@ -1275,8 +1301,8 @@ ADMIN_TEMPLATE = '''
                             <tr>
                                 <td style="padding: 12px; border: 1px solid #ddd;">${dept.department}</td>
                                 <td style="padding: 12px; border: 1px solid #ddd;">${dept.count}人</td>
-                                <td style="padding: 12px; border: 1px solid #ddd;">$${dept.total_salary.toLocaleString()}</td>
-                                <td style="padding: 12px; border: 1px solid #ddd;">$${dept.avg_salary.toLocaleString()}</td>
+                                <td style="padding: 12px; border: 1px solid #ddd;">${dept.total_salary.toLocaleString()}</td>
+                                <td style="padding: 12px; border: 1px solid #ddd;">${dept.avg_salary.toLocaleString()}</td>
                             </tr>
                         `;
                     });
@@ -1338,7 +1364,7 @@ ADMIN_TEMPLATE = '''
                     result.results.forEach(r => {
                         const statusColor = r.success ? 'green' : 'red';
                         const statusText = r.success ? '✅ 成功' : '❌ 失敗';
-                        const salary = r.success ? `$${r.net_salary.toLocaleString()}` : '-';
+                        const salary = r.success ? `${r.net_salary.toLocaleString()}` : '-';
                         const note = r.success ? '' : r.error;
                         
                         resultHTML += `

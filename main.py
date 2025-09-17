@@ -11,6 +11,7 @@ from message_processor import MessageProcessor
 from admin_routes import setup_admin_routes
 from salary_calculator import SalaryCalculator
 from models import SalaryManager
+from overtime_manager import OvertimeManager
 
 # 初始化 Flask 應用
 app = Flask(__name__)
@@ -62,33 +63,43 @@ def handle_follow(event):
 def test():
     return "Flask 應用運行正常！"
 
-if __name__ == "__main__":  # ✅ 修正：使用雙底線而非雙星號
+if __name__ == "__main__":
     print("🚀 啟動企業級出勤管理系統...")
     print("🔒 權限系統：管理員 / 員工")
     print("🛡️ 安全特色：IP驗證 + 網路範圍控制")
+    print("⏰ 新功能：加班申報與審核系統")
     
     # 初始化資料庫
     init_db()
     print("✅ 企業資料庫初始化完成")
     
-    # 自動更新網路設定
+    # 初始化加班功能資料表
     try:
-        from models import CompanySettings
-        CompanySettings.update_setting('allowed_networks', '172.20.10.0/24, 192.168.101.0/24, 192.168.1.0/24, 147.92.150.192/28,147.92.149.0/24', 'system')
-        print("✅ 網路設定已自動更新")
+        OvertimeManager.init_overtime_tables()
+        print("✅ 加班管理資料表初始化完成")
     except Exception as e:
-        print(f"⚠️ 網路設定更新失敗: {e}")
+        print(f"⚠️ 加班功能初始化失敗: {e}")
+
     
     print("\n📱 LINE Bot功能已就緒")
     print("🌐 管理後台已整合")
     print("🔒 網路安全控制已啟用")
     print("🔥 自助註冊功能已啟用")
+    print("⏰ 加班申報系統已啟用")
     
     print("\n💡 主要功能：")
     print("  ✅ 上班打卡 / 下班打卡")
     print("  ✅ 今日狀態 / 查看記錄") 
     print("  ✅ 網路安全驗證")
     print("  ✅ 自助註冊流程")
+    print("  ✅ 薪資查詢功能")
+    print("  ✅ 加班申報與審核")
+    
+    print("\n⏰ 加班申報功能：")
+    print("  📝 員工LINE Bot申報加班")
+    print("  ⏳ 管理員線上審核")
+    print("  📊 自動計算加班費")
+    print("  📋 加班統計報表")
     
     # 顯示已註冊的路由
     print("\n📋 已註冊的路由:")

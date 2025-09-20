@@ -7,10 +7,13 @@ import pytz
 from models import EmployeeManager, CompanySettings
 from network_security import NetworkSecurity
 from templates import INDEX_TEMPLATE, ADMIN_TEMPLATE
+from overtime_templates import OVERTIME_MANAGEMENT_TEMPLATE
+from leave_templates import LEAVE_MANAGEMENT_TEMPLATE
 from attendance_report import AttendanceReport
 
 # 台灣時區設定
 TW_TZ = pytz.timezone('Asia/Taipei')
+
 
 # 權限裝飾器
 def require_admin(f):
@@ -26,6 +29,14 @@ def require_admin(f):
         return f(*args, **kwargs)
     return decorated_function
 
+def require_employee_or_admin(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'employee_id' not in session:
+            return jsonify({'error': '請先登入'}), 401
+        
+        return f(*args, **kwargs)
+    return decorated_function
 # 新增：員工身份驗證裝飾器（可查看自己的薪資）
 def require_employee_or_admin(f):
     @wraps(f)
@@ -46,6 +57,14 @@ def setup_admin_routes(app):
     @app.route('/admin')
     def admin_dashboard():
         return render_template_string(ADMIN_TEMPLATE)
+    
+    @app.route('/admin/overtime')
+    def overtime_management():
+        return render_template_string(OVERTIME_MANAGEMENT_TEMPLATE)
+
+    @app.route('/admin/leave')
+    def leave_management():
+        return render_template_string(LEAVE_MANAGEMENT_TEMPLATE)
 
     @app.route('/login', methods=['POST'])
     def admin_login():
@@ -233,6 +252,21 @@ def setup_admin_routes(app):
                 'message': str(e)
             }), 400
     
+    @app.route('/api/admin/quick-nav')
+    @require_admin
+    def admin_quick_nav():
+        """管理後台快速導航"""
+        return jsonify({
+            'success': True,
+            'navigation': {
+                'dashboard': '/admin',
+                'overtime_management': '/admin/overtime',
+                'leave_management': '/admin/leave',
+                'salary_management': '/admin/salary',
+                'attendance_reports': '/admin/reports'
+            }
+        })
+        
     @app.route('/api/overtime/batch-approve', methods=['POST'])
     @require_admin
     def batch_approve_overtime():

@@ -1,4 +1,4 @@
-# templates.py - HTML模板模組 (移除遲到功能版)
+# templates.py - HTML模板模組 
 
 # 首頁模板
 INDEX_TEMPLATE = '''
@@ -367,6 +367,31 @@ ADMIN_TEMPLATE = '''
                     <h3>💰 薪資管理</h3>
                     <p>員工薪資設定、薪資計算、薪資報表</p>
                     <button class="btn" onclick="showSalaryManagement()">薪資管理</button>
+                </div>
+
+                <!-- 新增：加班管理 -->
+                <div class="card">
+                    <h3>⏰ 加班管理</h3>
+                    <p>加班申請審核、加班統計、費用分析</p>
+                    <button class="btn" onclick="location.href='/admin/overtime'">加班管理</button>
+                </div>
+
+                <!-- 新增：請假管理 -->
+                <div class="card">
+                    <h3>🏖️ 請假管理</h3>
+                    <p>請假申請審核、假期額度、請假統計</p>
+                    <button class="btn" onclick="location.href='/admin/leave'">請假管理</button>
+                </div>
+
+                <!-- 新增：快速功能 -->
+                <div class="card">
+                    <h3>⚡ 快速功能</h3>
+                    <p>常用管理功能快速通道</p>
+                    <div style="margin-top: 10px;">
+                        <button class="btn" onclick="location.href='/admin/overtime'" style="margin: 2px; padding: 8px 12px; font-size: 12px;">⏰ 加班</button>
+                        <button class="btn" onclick="location.href='/admin/leave'" style="margin: 2px; padding: 8px 12px; font-size: 12px;">🏖️ 請假</button>
+                        <button class="btn" onclick="showSalaryManagement()" style="margin: 2px; padding: 8px 12px; font-size: 12px;">💰 薪資</button>
+                    </div>
                 </div>
             </div>
 

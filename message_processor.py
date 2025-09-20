@@ -1,26 +1,21 @@
-# message_processor.py - 靈活打卡訊息處理模組 (完整版 - 支援員工薪資查詢和加班申報)
+# message_processor.py - 完整出勤管理訊息處理模組 (支援請假功能)
 import sqlite3
 from datetime import datetime, timedelta
 import pytz
 import re
-from linebot.models import TextSendMessage
+from linebot.models import TextSendMessage, FlexSendMessage, QuickReply, QuickReplyButton, MessageAction
 from models import EmployeeManager
 from attendance import AttendanceManager
 from network_security import NetworkSecurity
 from salary_calculator import SalaryCalculator
 from overtime_manager import OvertimeManager
-from linebot.models import FlexSendMessage
-from linebot.models import (
-    TextSendMessage, FlexSendMessage, QuickReply, QuickReplyButton, 
-    MessageAction, PostbackAction, TemplateSendMessage, CarouselTemplate,
-    CarouselColumn, URIAction
-)
+from leave_manager import LeaveManager, LEAVE_TYPES
 
 # 台灣時區設定
 TW_TZ = pytz.timezone('Asia/Taipei')
 
 class MessageProcessor:
-    """訊息處理器 - 完整版本（支援員工薪資查詢和加班申報）"""
+    """訊息處理器 - 完整版本（支援員工薪資查詢、加班申報和請假功能）"""
     
     @staticmethod
     def create_main_menu():
@@ -31,9 +26,37 @@ class MessageProcessor:
             QuickReplyButton(action=MessageAction(label="今日狀態", text="今日狀態")),
             QuickReplyButton(action=MessageAction(label="薪資查詢", text="薪資查詢")),
             QuickReplyButton(action=MessageAction(label="加班申報", text="加班申報")),
+            QuickReplyButton(action=MessageAction(label="請假申請", text="請假申請")),
             QuickReplyButton(action=MessageAction(label="個人資訊", text="個人資訊")),
-            QuickReplyButton(action=MessageAction(label="查看記錄", text="查看記錄")),
             QuickReplyButton(action=MessageAction(label="幫助", text="幫助"))
+        ])
+        return quick_reply
+    
+    @staticmethod
+    def create_leave_menu():
+        """創建請假申請選單 Quick Reply"""
+        quick_reply = QuickReply(items=[
+            QuickReplyButton(action=MessageAction(label="申請請假", text="申請請假")),
+            QuickReplyButton(action=MessageAction(label="我的請假", text="我的請假申請")),
+            QuickReplyButton(action=MessageAction(label="請假記錄", text="請假記錄")),
+            QuickReplyButton(action=MessageAction(label="請假額度", text="請假額度")),
+            QuickReplyButton(action=MessageAction(label="取消申請", text="取消請假申請")),
+            QuickReplyButton(action=MessageAction(label="返回主選單", text="選單"))
+        ])
+        return quick_reply
+    
+    @staticmethod
+    def create_leave_type_menu():
+        """創建請假類型選單"""
+        quick_reply = QuickReply(items=[
+            QuickReplyButton(action=MessageAction(label="🏖️ 特休假", text="請假類型:annual")),
+            QuickReplyButton(action=MessageAction(label="🏥 病假", text="請假類型:sick")),
+            QuickReplyButton(action=MessageAction(label="📋 事假", text="請假類型:personal")),
+            QuickReplyButton(action=MessageAction(label="🕯️ 喪假", text="請假類型:funeral")),
+            QuickReplyButton(action=MessageAction(label="👶 產假", text="請假類型:maternity")),
+            QuickReplyButton(action=MessageAction(label="👨‍👶 陪產假", text="請假類型:paternity")),
+            QuickReplyButton(action=MessageAction(label="🏛️ 公假", text="請假類型:official")),
+            QuickReplyButton(action=MessageAction(label="💒 婚假", text="請假類型:marriage"))
         ])
         return quick_reply
     
@@ -104,6 +127,8 @@ class MessageProcessor:
             return MessageProcessor.show_attendance_menu()
         elif command in ['加班選單', '加班功能']:
             return MessageProcessor.show_overtime_menu()
+        elif command in ['請假選單', '請假功能', '請假申請']:
+            return MessageProcessor.show_leave_menu()
         
         # 基本出勤功能
         elif command in ['上班打卡', '上班', '打卡上班']:
@@ -145,6 +170,24 @@ class MessageProcessor:
         elif command.startswith('取消申請:') or command.startswith('取消申請：'):
             return MessageProcessor.process_cancel_overtime(employee_id, command)
         
+        # === 新增請假功能處理 ===
+        elif command in ['請假申請', '申請請假', '請假']:
+            return MessageProcessor.show_leave_application_form(employee_id)
+        elif command in ['我的請假申請', '我的請假', '請假狀態']:
+            return MessageProcessor.show_my_leave_requests(employee_id)
+        elif command in ['請假記錄', '請假歷史']:
+            return MessageProcessor.show_leave_history(employee_id)
+        elif command in ['請假額度', '剩餘假期']:
+            return MessageProcessor.show_leave_quotas(employee_id)
+        elif command in ['取消請假申請', '取消請假']:
+            return MessageProcessor.show_cancel_leave_form(employee_id)
+        elif command.startswith('請假類型:'):
+            return MessageProcessor.process_leave_type_selection(employee_id, command)
+        elif command.startswith('請假:'):
+            return MessageProcessor.process_leave_application(employee_id, command)
+        elif command.startswith('取消請假:') or command.startswith('取消請假：'):
+            return MessageProcessor.process_cancel_leave(employee_id, command)
+        
         # 個人資訊查詢功能
         elif command in ['我的資訊', '個人資訊', '員工資訊']:
             return MessageProcessor.get_employee_info(employee_id)
@@ -157,16 +200,407 @@ class MessageProcessor:
                 return MessageProcessor.show_attendance_stats()
             elif command in ['加班審核', '審核加班']:
                 return MessageProcessor.show_overtime_approvals()
+            elif command in ['請假審核', '審核請假']:
+                return MessageProcessor.show_leave_approvals()
             elif command in ['網路設定', '網路管理']:
                 return MessageProcessor.show_network_settings()
         
         # 默認回應
         return MessageProcessor.get_help_with_menu(role)
     
+    # === 請假功能方法 ===
+    @staticmethod
+    def show_leave_menu():
+        """顯示請假申請選單"""
+        text = """🏖️ 請假申請系統
+
+選擇您要使用的請假功能：
+
+📝 可用功能：
+• 申請請假 - 提交新的請假申請
+• 我的請假 - 查看申請狀態
+• 請假記錄 - 查看歷史記錄
+• 請假額度 - 查看剩餘假期
+• 取消申請 - 取消待審申請
+
+💡 點擊下方按鈕或輸入指令"""
+        
+        return TextSendMessage(
+            text=text,
+            quick_reply=MessageProcessor.create_leave_menu()
+        )
+    
+    @staticmethod
+    def show_leave_application_form(employee_id):
+        """顯示請假申請表單"""
+        text = """📝 請假申請
+
+請先選擇您要申請的假別類型：
+
+🏖️ 特休假 - 年度特休假期
+🏥 病假 - 因病休養（超過3天需證明）
+📋 事假 - 個人事務假期
+🕯️ 喪假 - 直系親屬喪事
+👶 產假 - 產前產後假期
+👨‍👶 陪產假 - 配偶生產陪產
+🏛️ 公假 - 公務出差訓練
+💒 婚假 - 結婚假期
+
+請點擊下方按鈕選擇假別類型"""
+        
+        return TextSendMessage(
+            text=text,
+            quick_reply=MessageProcessor.create_leave_type_menu()
+        )
+    
+    @staticmethod
+    def process_leave_type_selection(employee_id, command):
+        """處理請假類型選擇"""
+        leave_type = command.split(':', 1)[1].strip()
+        
+        if leave_type not in LEAVE_TYPES:
+            return TextSendMessage(
+                text="❌ 無效的請假類型，請重新選擇",
+                quick_reply=MessageProcessor.create_leave_type_menu()
+            )
+        
+        leave_info = LEAVE_TYPES[leave_type]
+        
+        # 保存用戶選擇的假別到臨時狀態（可以使用資料庫或緩存）
+        # 這裡簡化處理，直接返回申請格式說明
+        
+        text = f"""📝 {leave_info['emoji']} {leave_info['name']} 申請表單
+
+{leave_info['description']}
+
+申請格式：
+請假:假別,開始日期,結束日期,開始時間,結束時間,請假原因
+
+範例：
+• 請假:{leave_type},2024-01-15,2024-01-15,09:00,18:00,身體不適需要休息
+• 請假:{leave_type},2024-01-16,2024-01-17,09:00,18:00,處理個人事務
+• 請假:{leave_type},明天,明天,14:00,18:00,下午看醫生
+
+📋 注意事項：
+• 日期格式：YYYY-MM-DD 或 今天/明天/後天
+• 時間格式：HH:MM（24小時制）
+• 單次申請最多{leave_info['max_days_per_request']}天
+• 請假原因請簡要說明"""
+
+        if leave_info['requires_proof']:
+            text += "\n⚠️ 此假別需要相關證明文件"
+        
+        return TextSendMessage(
+            text=text,
+            quick_reply=MessageProcessor.create_leave_menu()
+        )
+    
+    @staticmethod
+    def process_leave_application(employee_id, command):
+        """處理請假申請"""
+        try:
+            # 解析指令：請假:假別,開始日期,結束日期,開始時間,結束時間,請假原因
+            parts = command.split(':', 1)[1].split(',')
+            
+            if len(parts) < 3:
+                return TextSendMessage(
+                    text="❌ 格式錯誤！\n\n正確格式：\n請假:假別,開始日期,結束日期,開始時間,結束時間,請假原因\n\n範例：\n請假:sick,2024-01-15,2024-01-15,09:00,18:00,身體不適",
+                    quick_reply=MessageProcessor.create_leave_menu()
+                )
+            
+            leave_type = parts[0].strip()
+            start_date = parts[1].strip()
+            end_date = parts[2].strip() if len(parts) > 2 else start_date
+            start_time = parts[3].strip() if len(parts) > 3 else '09:00'
+            end_time = parts[4].strip() if len(parts) > 4 else '18:00'
+            reason = parts[5].strip() if len(parts) > 5 else '個人事務'
+            
+            # 處理日期
+            start_date = MessageProcessor.parse_date_string(start_date)
+            end_date = MessageProcessor.parse_date_string(end_date)
+            
+            if not start_date or not end_date:
+                return TextSendMessage(
+                    text="❌ 日期格式錯誤！\n\n支援格式：\n• 2024-01-15\n• 明天\n• 今天",
+                    quick_reply=MessageProcessor.create_leave_menu()
+                )
+            
+            # 驗證時間格式
+            if not re.match(r'^\d{1,2}:\d{2}$', start_time) or not re.match(r'^\d{1,2}:\d{2}$', end_time):
+                return TextSendMessage(
+                    text="❌ 時間格式錯誤！\n\n正確格式：HH:MM\n範例：09:00, 14:30",
+                    quick_reply=MessageProcessor.create_leave_menu()
+                )
+            
+            # 提交申請
+            leave_data = {
+                'leave_type': leave_type,
+                'start_date': start_date,
+                'end_date': end_date,
+                'start_time': start_time,
+                'end_time': end_time,
+                'reason': reason
+            }
+            
+            result = LeaveManager.submit_leave_request(employee_id, leave_data)
+            
+            if result['success']:
+                response_text = f"✅ {result['message']}\n\n📋 申請詳情：\n日期：{start_date} - {end_date}\n時間：{start_time} - {end_time}\n天數：{result['total_days']}天\n原因：{reason}\n\n⏳ 請等待管理員審核"
+            else:
+                response_text = f"❌ {result['message']}"
+            
+            return TextSendMessage(
+                text=response_text,
+                quick_reply=MessageProcessor.create_leave_menu()
+            )
+            
+        except Exception as e:
+            return TextSendMessage(
+                text=f"❌ 申請處理失敗：{str(e)}\n\n請檢查格式後重試",
+                quick_reply=MessageProcessor.create_leave_menu()
+            )
+    
+    @staticmethod
+    def show_my_leave_requests(employee_id):
+        """顯示我的請假申請"""
+        try:
+            requests = LeaveManager.get_leave_requests(employee_id=employee_id, limit=10)
+            
+            if not requests:
+                return TextSendMessage(
+                    text="📋 我的請假申請\n\n目前沒有請假申請記錄\n\n💡 輸入「申請請假」開始申請",
+                    quick_reply=MessageProcessor.create_leave_menu()
+                )
+            
+            text = "📋 我的請假申請記錄\n" + "─" * 25 + "\n\n"
+            
+            for req in requests:
+                status_info = f"{req['status_emoji']} {req['status_name']}"
+                leave_info = f"{req['leave_type_emoji']} {req['leave_type_name']}"
+                
+                text += f"🆔 申請 #{req['id']}\n"
+                text += f"📅 {req['start_date']} - {req['end_date']}\n"
+                text += f"⏰ {req['start_time']} - {req['end_time']} ({req['total_days']}天)\n"
+                text += f"🏷️ {leave_info}\n"
+                text += f"📊 {status_info}\n"
+                text += f"📝 {req['reason']}\n"
+                
+                if req['status'] == 'rejected' and req['rejected_reason']:
+                    text += f"❌ 拒絕原因：{req['rejected_reason']}\n"
+                
+                text += "\n"
+            
+            text += "💡 如需取消待審申請，輸入「取消請假申請」"
+            
+            return TextSendMessage(
+                text=text,
+                quick_reply=MessageProcessor.create_leave_menu()
+            )
+            
+        except Exception as e:
+            return TextSendMessage(
+                text=f"❌ 查詢失敗：{str(e)}",
+                quick_reply=MessageProcessor.create_leave_menu()
+            )
+    
+    @staticmethod
+    def show_leave_history(employee_id):
+        """顯示請假歷史記錄"""
+        try:
+            requests = LeaveManager.get_leave_requests(employee_id=employee_id, limit=20)
+            
+            if not requests:
+                return TextSendMessage(
+                    text="📋 請假歷史記錄\n\n暫無請假記錄",
+                    quick_reply=MessageProcessor.create_leave_menu()
+                )
+            
+            # 按年月分組統計
+            monthly_stats = {}
+            total_approved_days = 0
+            
+            for req in requests:
+                if req['status'] == 'approved':
+                    total_approved_days += req['total_days']
+                    
+                month_key = req['start_date'][:7]  # YYYY-MM
+                if month_key not in monthly_stats:
+                    monthly_stats[month_key] = {'count': 0, 'days': 0}
+                if req['status'] == 'approved':
+                    monthly_stats[month_key]['count'] += 1
+                    monthly_stats[month_key]['days'] += req['total_days']
+            
+            text = f"📋 請假歷史記錄\n" + "─" * 25 + "\n\n"
+            text += f"📊 統計摘要：\n"
+            text += f"• 總申請數：{len(requests)}筆\n"
+            text += f"• 已批准天數：{total_approved_days:.1f}天\n\n"
+            
+            # 顯示最近的申請
+            text += f"📝 最近申請記錄：\n\n"
+            for req in requests[:5]:  # 只顯示最近5筆
+                status_info = f"{req['status_emoji']} {req['status_name']}"
+                leave_info = f"{req['leave_type_emoji']} {req['leave_type_name']}"
+                
+                text += f"{req['start_date']} {leave_info} {req['total_days']}天 {status_info}\n"
+            
+            if len(requests) > 5:
+                text += f"\n還有 {len(requests) - 5} 筆記錄..."
+            
+            return TextSendMessage(
+                text=text,
+                quick_reply=MessageProcessor.create_leave_menu()
+            )
+            
+        except Exception as e:
+            return TextSendMessage(
+                text=f"❌ 查詢失敗：{str(e)}",
+                quick_reply=MessageProcessor.create_leave_menu()
+            )
+    
+    @staticmethod
+    def show_leave_quotas(employee_id):
+        """顯示請假額度"""
+        try:
+            summary = LeaveManager.get_employee_leave_summary(employee_id)
+            
+            text = f"📊 請假額度查詢 - {summary['year']}年\n"
+            text += "─" * 25 + "\n\n"
+            
+            # 顯示有額度限制的假別
+            quota_types = ['annual', 'compensatory']
+            for leave_type in quota_types:
+                if leave_type in summary['quotas']:
+                    quota = summary['quotas'][leave_type]
+                    type_info = LEAVE_TYPES[leave_type]
+                    
+                    text += f"{type_info['emoji']} {type_info['name']}\n"
+                    text += f"• 分配額度：{quota['allocated']}天\n"
+                    text += f"• 已使用：{quota['used']}天\n"
+                    text += f"• 剩餘額度：{quota['remaining']}天\n\n"
+            
+            # 顯示本年度各類型使用統計
+            text += f"📈 {summary['year']}年使用統計：\n"
+            for leave_type, stats in summary['stats'].items():
+                if stats['approved']['days'] > 0:
+                    type_info = LEAVE_TYPES.get(leave_type, {'name': leave_type, 'emoji': '📋'})
+                    text += f"{type_info['emoji']} {type_info['name']}：{stats['approved']['days']}天\n"
+            
+            # 本月統計
+            text += f"\n🗓️ {summary['month']}使用：{summary['this_month']['days']}天\n"
+            
+            text += f"\n💡 提醒：\n"
+            text += f"• 特休假需事先申請\n"
+            text += f"• 病假超過3天需診斷證明\n"
+            text += f"• 補休來自加班時數累積"
+            
+            return TextSendMessage(
+                text=text,
+                quick_reply=MessageProcessor.create_leave_menu()
+            )
+            
+        except Exception as e:
+            return TextSendMessage(
+                text=f"❌ 查詢額度失敗：{str(e)}",
+                quick_reply=MessageProcessor.create_leave_menu()
+            )
+    
+    @staticmethod
+    def show_cancel_leave_form(employee_id):
+        """顯示取消請假申請表單"""
+        try:
+            # 獲取待審核和已批准的申請
+            pending_requests = LeaveManager.get_leave_requests(
+                employee_id=employee_id, 
+                status='pending', 
+                limit=5
+            )
+            
+            approved_requests = LeaveManager.get_leave_requests(
+                employee_id=employee_id, 
+                status='approved', 
+                limit=3
+            )
+            
+            all_requests = pending_requests + approved_requests
+            
+            if not all_requests:
+                return TextSendMessage(
+                    text="📋 取消請假申請\n\n目前沒有可以取消的申請",
+                    quick_reply=MessageProcessor.create_leave_menu()
+                )
+            
+            text = "📋 可取消的請假申請\n"
+            text += "─" * 25 + "\n\n"
+            
+            for req in all_requests:
+                status_info = f"{req['status_emoji']} {req['status_name']}"
+                leave_info = f"{req['leave_type_emoji']} {req['leave_type_name']}"
+                
+                text += f"🆔 #{req['id']} | {req['start_date']}\n"
+                text += f"⏰ {req['start_time']}-{req['end_time']} ({req['total_days']}天)\n"
+                text += f"🏷️ {leave_info} | {status_info}\n"
+                text += f"📝 {req['reason']}\n\n"
+            
+            text += "❌ 取消格式：\n"
+            text += "取消請假:申請編號\n\n"
+            text += "範例：取消請假:123"
+            
+            return TextSendMessage(
+                text=text,
+                quick_reply=MessageProcessor.create_leave_menu()
+            )
+            
+        except Exception as e:
+            return TextSendMessage(
+                text=f"❌ 查詢失敗：{str(e)}",
+                quick_reply=MessageProcessor.create_leave_menu()
+            )
+    
+    @staticmethod
+    def process_cancel_leave(employee_id, command):
+        """處理取消請假申請"""
+        try:
+            # 解析申請編號
+            request_id_str = command.split(':', 1)[1].strip()
+            request_id = int(request_id_str)
+            
+            result = LeaveManager.cancel_leave_request(request_id, employee_id)
+            
+            if result['success']:
+                response_text = f"✅ {result['message']}\n\n取消成功！"
+            else:
+                response_text = f"❌ {result['message']}"
+            
+            return TextSendMessage(
+                text=response_text,
+                quick_reply=MessageProcessor.create_leave_menu()
+            )
+            
+        except ValueError:
+            return TextSendMessage(
+                text="❌ 申請編號格式錯誤！\n\n正確格式：取消請假:123",
+                quick_reply=MessageProcessor.create_leave_menu()
+            )
+        except Exception as e:
+            return TextSendMessage(
+                text=f"❌ 取消失敗：{str(e)}",
+                quick_reply=MessageProcessor.create_leave_menu()
+            )
+    
+    # === 管理員請假審核功能 ===
+    @staticmethod
+    def show_leave_approvals():
+        """顯示請假審核功能（管理員）"""
+        return TextSendMessage(
+            text="請假審核管理\n\n請使用管理後台進行請假審核：\nhttp://localhost:5008/admin",
+            quick_reply=MessageProcessor.create_main_menu()
+        )
+    
+    # === 其他既有功能方法（保持不變）===
     @staticmethod
     def show_main_menu():
         """顯示主選單"""
-        text = """🏢 企業出勤管理系統 - 主選單
+        text = """🟢 企業出勤管理系統 - 主選單
 
 請選擇您要使用的功能：
 
@@ -175,6 +609,7 @@ class MessageProcessor:
 • 今日狀態 / 查看記錄  
 • 薪資查詢 / 個人統計
 • 加班申報 / 加班摘要
+• 請假申請 / 請假記錄
 • 網路檢查
 
 💡 點擊下方按鈕快速操作，或直接輸入文字指令"""
@@ -861,6 +1296,10 @@ class MessageProcessor:
 • 輸入「申報加班」提交加班申請
 • 輸入「加班摘要」查看本月統計
 
+請假功能：
+• 輸入「申請請假」提交請假申請
+• 輸入「請假記錄」查看請假歷史
+
 輸入「選單」查看更多功能"""
                 
                 return TextSendMessage(
@@ -875,7 +1314,7 @@ class MessageProcessor:
     
     @staticmethod
     def get_help_with_menu(role):
-        """獲取幫助訊息 - 支援員工薪資查詢和加班申報功能"""
+        """獲取幫助訊息 - 支援員工薪資查詢、加班申報和請假功能"""
         base_help = """企業出勤管理系統
 
 基本功能：
@@ -883,6 +1322,7 @@ class MessageProcessor:
 • 今日狀態 / 查看記錄
 • 薪資查詢 / 個人資訊
 • 加班申報 / 加班摘要
+• 請假申請 / 請假記錄
 • 網路檢查
 
 薪資功能：
@@ -894,6 +1334,12 @@ class MessageProcessor:
 • 我的申請 - 查看申請狀態
 • 加班摘要 - 統計預估加班費
 • 取消申請 - 取消待審申請
+
+請假申請：
+• 申請請假 - 提交各類請假申請
+• 我的請假 - 查看申請狀態
+• 請假記錄 - 查看歷史記錄
+• 請假額度 - 查看剩餘假期
 
 個人資訊：
 • 查看員工編號、姓名、部門
@@ -911,7 +1357,8 @@ class MessageProcessor:
 管理功能：
 • 員工管理 / 出勤統計
 • 薪資管理 / 網路設定
-• 加班審核 / 審核管理
+• 加班審核 / 請假審核
+• 審核管理
 
 管理後台：http://localhost:5008/admin"""
             base_help += admin_help
@@ -925,8 +1372,11 @@ class MessageProcessor:
 • 輸入「薪資查詢:2024/03」查看特定月份
 • 輸入「申報加班」提交加班申請
 • 輸入「加班摘要」查看本月統計
+• 輸入「申請請假」提交請假申請
+• 輸入「請假記錄」查看請假歷史
+• 輸入「請假額度」查看剩餘假期
 
-如有薪資或加班問題請聯繫管理部門"""
+如有薪資、加班或請假問題請聯繫管理部門"""
             base_help += employee_help
         
         return TextSendMessage(
@@ -1139,6 +1589,11 @@ class MessageProcessor:
 輸入「申報加班」提交加班申請
 輸入「加班摘要」查看本月統計
 
+請假申請：
+輸入「申請請假」提交請假申請
+輸入「請假記錄」查看請假歷史
+輸入「請假額度」查看剩餘假期
+
 請在公司網路環境內進行打卡
 輸入「幫助」查看完整功能說明"""
 
@@ -1201,6 +1656,11 @@ class MessageProcessor:
 • 員工LINE Bot申報加班
 • 管理員線上審核
 • 自動計算加班費
+
+請假申請功能：
+• 支援多種假別申請
+• 線上審核流程
+• 自動額度管理
 
 開始使用：
 • 新用戶請輸入「註冊員工」

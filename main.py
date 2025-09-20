@@ -9,10 +9,11 @@ from linebot.models import MessageEvent, TextMessage, FollowEvent
 from models import init_db
 from message_processor import MessageProcessor
 from admin_routes import setup_admin_routes
+from admin_leave_routes import setup_leave_admin_routes
 from salary_calculator import SalaryCalculator
 from models import SalaryManager
 from overtime_manager import OvertimeManager
-
+from leave_manager import LeaveManager
 # 初始化 Flask 應用
 app = Flask(__name__)
 app.secret_key = 'your-secret-key-here'
@@ -26,6 +27,7 @@ handler = WebhookHandler(WEBHOOK_SECRET)
 
 # 設定管理後台路由
 setup_admin_routes(app)
+setup_leave_admin_routes(app)
 
 # LINE Bot Webhook 路由
 @app.route("/callback", methods=['POST'])
@@ -58,6 +60,7 @@ def handle_follow(event):
     line_bot_api.reply_message(event.reply_token, 
                               MessageProcessor.create_text_message(welcome_message))
 
+
 # 測試路由
 @app.route('/test')
 def test():
@@ -80,6 +83,12 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"⚠️ 加班功能初始化失敗: {e}")
 
+    try:
+        LeaveManager.init_leave_tables()
+        print("✅ 請假管理資料表初始化完成")
+    except Exception as e:
+        print(f"⚠️ 請假功能初始化失敗: {e}")
+        
     
     print("\n📱 LINE Bot功能已就緒")
     print("🌐 管理後台已整合")
@@ -94,6 +103,7 @@ if __name__ == "__main__":
     print("  ✅ 自助註冊流程")
     print("  ✅ 薪資查詢功能")
     print("  ✅ 加班申報與審核")
+    print("  ✅ 請假申請與審核")
     
     print("\n⏰ 加班申報功能：")
     print("  📝 員工LINE Bot申報加班")
